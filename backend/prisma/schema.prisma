@@ -1,0 +1,254 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./fintrace.db"
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String
+  name         String
+  role         String   // ADMIN, LEA, BANK
+  bankName     String?  // Associated bank for BANK role
+  createdAt    DateTime @default(now())
+
+  // Relationships
+  assignedCases       Complaint[]     @relation("OfficerCases")
+  assignedAlerts      Alert[]         @relation("OfficerAlerts")
+  assignedInvestigations Investigation[] @relation("OfficerInvestigations")
+  auditLogs           AuditLog[]
+}
+
+model Complaint {
+  id                String     @id
+  victimName        String
+  victimPhone       String
+  victimAccount     String
+  victimBank        String
+  amount            Float
+  category          String     // e.g., UPI Fraud, Social Engineering
+  status            String     @default("NEW") // NEW, UNDER_REVIEW, ESCALATED, INVESTIGATING, RESOLVED
+  sourceCity        String
+  sourceState       String
+  sourceLat         Float
+  sourceLng         Float
+  createdAt         DateTime   @default(now())
+  
+  // Relations
+  assignedOfficerId String?
+  assignedOfficer   User?      @relation("OfficerCases", fields: [assignedOfficerId], references: [id])
+  
+  transactions      Transaction[]
+  alerts            Alert[]
+  predictions       Prediction[]
+  hotspots          Hotspot[]
+  investigations    Investigation[]
+  evidence          Evidence[]
+  reports           Report[]
+  timelineEvents    InvestigationEvent[]
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([category])
+}
+
+model Transaction {
+  id                String    @id
+  senderAccount     String
+  receiverAccount   String
+  amount            Float
+  timestamp         DateTime  @default(now())
+  transactionType   String    // UPI, IMPS, RTGS, NEFT, ATM_WITHDRAWAL, etc.
+  riskScore         Float     @default(0.0)
+  isSimulated       Boolean   @default(false)
+  
+  // Relations
+  linkedComplaintId String?
+  linkedComplaint   Complaint? @relation(fields: [linkedComplaintId], references: [id], onDelete: Cascade)
+
+  @@index([senderAccount])
+  @@index([receiverAccount])
+  @@index([timestamp])
+  @@index([linkedComplaintId])
+}
+
+model Account {
+  accountNumber   String   @id
+  holderName      String
+  bankName        String
+  ifscCode        String
+  phoneNumber     String
+  riskScore       Float    @default(0.0)
+  classification  String   @default("SAFE") // SAFE, SUSPICIOUS, HIGH_RISK, MULE
+  isMule          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  linkedCaseId    String?
+
+  @@index([classification])
+}
+
+model ATM {
+  atmId              String   @id
+  locationName       String
+  city               String
+  state              String
+  latitude           Float
+  longitude          Float
+  riskLevel          String   @default("LOW") // LOW, MEDIUM, HIGH, CRITICAL
+  withdrawalVelocity Float    @default(0.0)
+
+  @@index([atmId])
+}
+
+model Prediction {
+  id               String    @id @default(uuid())
+  caseId           String
+  case             Complaint @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  sourceAccount    String
+  targetEntity     String    // Account number or ATM ID
+  probability      Float     // 0.0 to 1.0
+  predictedType    String    // NEXT_HOP, CASH_OUT
+  timeWindowMins   Int       @default(30)
+  factors          String    // Store as JSON string or text for SQLite compatibility
+  timestamp        DateTime  @default(now())
+
+  @@index([caseId])
+  @@index([predictedType])
+}
+
+model Hotspot {
+  id                  String    @id @default(uuid())
+  caseId              String
+  case                Complaint @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  locationName        String
+  city                String
+  state               String
+  latitude            Float
+  longitude           Float
+  riskScore           Float
+  riskLevel           String    // LOW, MEDIUM, HIGH, CRITICAL
+  predictedWindowMins Int       @default(60)
+  factors             String    // Store as text
+  timestamp           DateTime  @default(now())
+
+  @@index([caseId])
+}
+
+model Alert {
+  id                String      @id @default(uuid())
+  caseId            String
+  case              Complaint   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  severity          String      // INFO, WARNING, HIGH, CRITICAL
+  title             String
+  description       String
+  accountNumber     String
+  amountAtRisk      Float
+  status            String      @default("ACTIVE") // ACTIVE, RESOLVED
+  timestamp         DateTime    @default(now())
+  
+  assignedOfficerId String?
+  assignedOfficer   User?       @relation("OfficerAlerts", fields: [assignedOfficerId], references: [id])
+
+  @@index([caseId])
+  @@index([status])
+  @@index([timestamp])
+}
+
+model Investigation {
+  id                String              @id @default(uuid())
+  alertId           String?
+  caseId            String
+  case              Complaint           @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  status            String              @default("ALERT") // ALERT, REVIEW, ASSIGN, INVESTIGATE, ACTION_TAKEN, CLOSED
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  
+  assignedOfficerId String?
+  assignedOfficer   User?               @relation("OfficerInvestigations", fields: [assignedOfficerId], references: [id])
+  
+  notes             InvestigationNote[]
+  evidence          Evidence[]
+
+  @@index([caseId])
+  @@index([status])
+}
+
+model InvestigationNote {
+  id              String        @id @default(uuid())
+  investigationId String
+  investigation   Investigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+  officerName     String
+  content         String
+  timestamp       DateTime      @default(now())
+}
+
+model Evidence {
+  id              String         @id @default(uuid())
+  caseId          String
+  case            Complaint      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  investigationId String?
+  investigation   Investigation? @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+  title           String
+  description     String
+  timestamp       DateTime       @default(now())
+  fileType        String         // PDF, CSV, PNG, etc.
+
+  @@index([caseId])
+}
+
+model Report {
+  id          String    @id
+  caseId      String
+  case        Complaint @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  title       String
+  fileType    String    // PDF, CSV
+  generatedAt DateTime  @default(now())
+  generatedBy String
+  data        String    // JSON string representation
+
+  @@index([caseId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  username  String
+  role      String
+  action    String
+  resource  String
+  timestamp DateTime @default(now())
+  ipAddress String?
+  result    String   // SUCCESS, FAILED
+
+  @@index([timestamp])
+}
+
+model InvestigationEvent {
+  id          String    @id @default(uuid())
+  caseId      String
+  case        Complaint @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  stepNum     Int
+  title       String
+  description String
+  timestamp   DateTime  @default(now())
+
+  @@index([caseId])
+}
+
+model Notification {
+  id          String             @id @default(uuid())
+  title       String
+  description String
+  severity    String             // INFO, WARNING, HIGH, CRITICAL
+  status      String             @default("UNREAD") // UNREAD, READ
+  caseId      String?
+  timestamp   DateTime           @default(now())
+
+  @@index([status])
+}

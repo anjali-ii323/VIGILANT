@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: cyberintel-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: cyberintel
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cyberintel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ml-service:
+    build: ./ml-service
+    container_name: cyberintel-ml
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+    volumes:
+      - ./ml-service/model:/app/model
+
+  backend:
+    build: ./backend
+    container_name: cyberintel-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/cyberintel?schema=public
+      - JWT_SECRET=cyberintel-jwt-secret-key-14c
+      - ML_SERVICE_URL=http://ml-service:8001
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npx prisma db push && npx ts-node src/seed.ts && node dist/main.js"
+
+volumes:
+  postgres_data:

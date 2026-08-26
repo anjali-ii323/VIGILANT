@@ -1,0 +1,37 @@
+# Python virtual environment
+venv/
+.venv/
+ENV/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node.js modules and builds
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment and sensitive keys
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# SQLite Database and schemas
+*.db
+*.db-journal
+*.sqlite3
+
+# IDE / System metadata
+.vscode/
+.idea/
+.gemini/
+.DS_Store
+Thumbs.db
