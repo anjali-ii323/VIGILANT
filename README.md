@@ -7,7 +7,7 @@
 ### Executive Summary
 Traditional cybercrime systems trace bank account money trails retrospectively, often discovering where stolen funds went days after the money has been physically withdrawn at ATMs. 
 
-Vigilant shifts cyber investigation from retrospective tracking to proactive interdiction. By analyzing banking transactions in real time, the platform maps layering paths, predicts the next logical account hop, forecasts physical ATM cash-out hotspots, and automates freeze requests—intercepting cyber criminals before withdrawals occur.
+Vigilant shifts cyber investigation from retrospective tracking to proactive interdiction. By analyzing banking transactions in real time, the platform maps layering paths, predicts the next logical account hop, forecasts physical ATM cash-out hotspots, and automates freeze requests intercepting cyber criminals before withdrawals occur.
 
 ---
 
