@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: vigilant-intel
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /api/cases
+    envVars:
+      - key: PORT
+        value: 8000
