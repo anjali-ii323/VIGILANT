@@ -174,6 +174,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       added_by: "Officer Rajesh K.",
       added_at: new Date().toISOString(),
       active: true
+    },
+    {
+      account_number: "MULE-C912",
+      holder_name: "Sunil Dutt Gowda",
+      bank_name: "Union Bank of India",
+      reason: "Rapid fund movement and structuring towards ATM Cluster 03.",
+      risk_level: "CRITICAL",
+      added_by: "Officer Rajesh K.",
+      added_at: new Date().toISOString(),
+      active: true
     }
   ]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([
@@ -189,28 +199,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ]);
   
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>(() => {
-    const timeNow = () => new Date().toLocaleTimeString('en-IN', { hour12: false });
+    const timeNow = (minsAgo: number = 0) => {
+      const d = new Date(Date.now() - minsAgo * 60000);
+      return d.toLocaleTimeString('en-IN', { hour12: false });
+    };
+
     return [
       {
-        timestamp: timeNow(),
+        timestamp: timeNow(0),
+        amount: 40000,
+        description: "Cash-Out Extraction Predicted: ₹40,000 converging towards ATM-Z03 (Dadar West Terminal) within 20–40 min.",
+        risk_level: "CRITICAL",
+        event_type: "PREDICTION_ALERT",
+        meta: { case_id: "CF-2026-00421", tx_id: "TX-9014" }
+      },
+      {
+        timestamp: timeNow(2),
+        amount: 25000,
+        description: "Layer 2 Secondary Dispersal: MULE-B821 transferred ₹25,000 to SBI Account MULE-D441 via NEFT.",
+        risk_level: "WARNING",
+        event_type: "TRANSACTION",
+        meta: { case_id: "CF-2026-00421", tx_id: "TX-9013" }
+      },
+      {
+        timestamp: timeNow(4),
+        amount: 40000,
+        description: "Structuring Split Detected: MULE-A457 routed ₹40,000 into Union Bank account MULE-C912.",
+        risk_level: "CRITICAL",
+        event_type: "RISK_UPDATE",
+        meta: { case_id: "CF-2026-00421", tx_id: "TX-9012" }
+      },
+      {
+        timestamp: timeNow(7),
+        amount: 60000,
+        description: "Inter-Bank IMPS Transfer: MULE-A457 moved ₹60,000 to PNB account MULE-B821 in 6 minutes.",
+        risk_level: "HIGH",
+        event_type: "TRANSACTION",
+        meta: { case_id: "CF-2026-00421", tx_id: "TX-9011" }
+      },
+      {
+        timestamp: timeNow(10),
+        amount: 100000,
+        description: "Unauthorized Debit: Initial victim account 30291488102 transferred ₹1,00,000 to MULE-A457 via UPI QR.",
+        risk_level: "CRITICAL",
+        event_type: "FRAUD_INFLOW",
+        meta: { case_id: "CF-2026-00421", tx_id: "TX-9010" }
+      },
+      {
+        timestamp: timeNow(12),
         amount: 0,
-        description: "Vigilant Level 3 Gateway: Secure WebSocket telemetry attached to bank surveillance core.",
+        description: "ML Isolation Forest Anomaly baseline evaluated. High-risk point score assigned to 4 nodes.",
         risk_level: "INFO",
         event_type: "SYSTEM",
         meta: {}
       },
       {
-        timestamp: timeNow(),
+        timestamp: timeNow(15),
         amount: 0,
-        description: "Watchlist active: Suspect nodes MULE-A457 and MULE-C912 flagged under real-time intercept tracking.",
-        risk_level: "WARNING",
-        event_type: "RISK_UPDATE",
-        meta: {}
-      },
-      {
-        timestamp: timeNow(),
-        amount: 0,
-        description: "Proactive Machine Learning Heuristics engine initialized. Multi-hop destination prediction active.",
+        description: "Vigilant Level 3 Gateway: Secure WebSocket telemetry attached to bank surveillance core.",
         risk_level: "INFO",
         event_type: "SYSTEM",
         meta: {}
@@ -250,9 +296,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return;
       }
-    } catch (err) {
-      // Fallback to MOCK_CASES_LIST
-    }
+    } catch (err) {}
 
     if (search) {
       const q = search.toLowerCase();
@@ -270,9 +314,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAlerts(await res.json());
         return;
       }
-    } catch (err) {
-      // Fallback
-    }
+    } catch (err) {}
     setAlerts(MOCK_ALERTS_LIST);
   }, []);
 
@@ -283,9 +325,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (res.ok) {
         setWatchlist(await res.json());
       }
-    } catch (err) {
-      // Fallback
-    }
+    } catch (err) {}
   }, []);
 
   // Fetch Audit Logs
@@ -295,9 +335,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (res.ok) {
         setAuditLogs(await res.json());
       }
-    } catch (err) {
-      // Fallback
-    }
+    } catch (err) {}
   }, []);
 
   // Fetch complete Case-specific Data
@@ -329,9 +367,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setLoading(false);
         return;
       }
-    } catch (err) {
-      // Fallback to static mock data
-    }
+    } catch (err) {}
 
     // Fallback load from MOCK_CASES_DATA
     const foundMock = MOCK_CASES_DATA.find(c => c.case_id === cleanId) || MOCK_CASES_DATA[0];
