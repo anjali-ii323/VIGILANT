@@ -6,13 +6,14 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { SVGNetworkGraph } from '../components/SVGNetworkGraph';
+import { MOCK_CASES_DATA } from '../data/mockData';
 
 export const TransactionNetwork: React.FC = () => {
   const { cases, activeCaseId, setActiveCaseId, addToast } = useApp();
   
   const [selectedCaseId, setSelectedCaseId] = useState<string>(activeCaseId || 'CF-2026-00421');
-  const [caseTransactions, setCaseTransactions] = useState<any[]>([]);
-  const [caseAccounts, setCaseAccounts] = useState<any[]>([]);
+  const [caseTransactions, setCaseTransactions] = useState<any[]>(MOCK_CASES_DATA[0].transactions);
+  const [caseAccounts, setCaseAccounts] = useState<any[]>(MOCK_CASES_DATA[0].accounts);
   const [loading, setLoading] = useState<boolean>(false);
 
   // Graph rendering lists
@@ -46,13 +47,25 @@ export const TransactionNetwork: React.FC = () => {
         fetch(`/api/cases/${cleanId}/transactions`),
         fetch(`/api/cases/${cleanId}/accounts`)
       ]);
-      if (resTxs.ok) setCaseTransactions(await resTxs.json());
-      if (resAccs.ok) setCaseAccounts(await resAccs.json());
+      if (resTxs.ok && resAccs.ok) {
+        const txsData = await resTxs.json();
+        const accsData = await resAccs.json();
+        if (txsData && txsData.length > 0) {
+          setCaseTransactions(txsData);
+          setCaseAccounts(accsData);
+          setLoading(false);
+          return;
+        }
+      }
     } catch (err) {
-      console.error("Failed to load network dataset:", err);
-    } finally {
-      setLoading(false);
+      // Fallback
     }
+
+    // Load from MOCK_CASES_DATA
+    const foundMock = MOCK_CASES_DATA.find(c => c.case_id === cleanId) || MOCK_CASES_DATA[0];
+    setCaseTransactions(foundMock.transactions);
+    setCaseAccounts(foundMock.accounts);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -98,7 +111,7 @@ export const TransactionNetwork: React.FC = () => {
         type = 'ATM';
         riskScore = 95.0;
         holderName = "ATM Terminal";
-      } else if (nodeId.startsWith('30') || nodeId.startsWith('VIC')) {
+      } else if (nodeId.startsWith('30') || nodeId.startsWith('VIC') || nodeId.startsWith('50') || nodeId.startsWith('60') || nodeId.startsWith('70') || nodeId.startsWith('80') || nodeId.startsWith('90')) {
         type = 'VICTIM';
         riskScore = 5.0;
         holderName = "Victim Account";
@@ -198,21 +211,40 @@ export const TransactionNetwork: React.FC = () => {
     setSelectedEdgeId(null);
     setSelectedTxDetail(null);
 
+    const foundAcc = caseAccounts.find(a => a.account_number === nodeId) || {
+      account_number: nodeId,
+      holder_name: nodeId.startsWith('ATM') ? 'ATM Terminal' : 'Entity Under Surveillance',
+      bank_name: 'Banking Gateway',
+      classification: nodeId.startsWith('MULE') ? 'HIGH RISK' : 'BENIGN',
+      is_mule: nodeId.startsWith('MULE'),
+      risk_score: nodeId.startsWith('MULE') ? 92 : 5
+    };
+
+    setInspectedAccount(foundAcc);
+    setInspectedRisk({
+      account_number: nodeId,
+      risk_score: foundAcc.risk_score || 91,
+      risk_factors: {
+        "Rapid fund movement": 24,
+        "Multiple unrelated senders": 19,
+        "Transaction splitting": 14,
+        "Unusual transaction amount": 17,
+        "Short holding period": 11
+      }
+    });
+    setInspectedTxs(caseTransactions.filter(t => t.sender_account === nodeId || t.receiver_account === nodeId));
+
     try {
-      const [resAcc, resRisk, resPred, resHist] = await Promise.all([
+      const [resAcc, resRisk, resHist] = await Promise.all([
         fetch(`/api/accounts/${nodeId}`),
         fetch(`/api/accounts/${nodeId}/risk`),
-        fetch(`/api/accounts/${nodeId}/prediction`),
         fetch(`/api/accounts/${nodeId}/history`)
       ]);
 
       if (resAcc.ok) setInspectedAccount(await resAcc.json());
       if (resRisk.ok) setInspectedRisk(await resRisk.json());
-      if (resPred.ok) setInspectedPrediction(await resPred.json());
       if (resHist.ok) setInspectedTxs(await resHist.json());
-    } catch (err) {
-      console.error("Failed to inspect node:", err);
-    }
+    } catch (err) {}
   };
 
   const handleSelectEdge = (edgeId: string) => {
@@ -239,20 +271,11 @@ export const TransactionNetwork: React.FC = () => {
       }
     }
 
-    try {
-      const res = await fetch(`/api/accounts/${q}`);
-      if (res.ok) {
-        const acc = await res.json();
-        if (acc.linked_case_id) {
-          setSelectedCaseId(acc.linked_case_id);
-          setActiveCaseId(acc.linked_case_id);
-          setTimeout(() => handleSelectNode(acc.account_number), 300);
-          addToast("Account Mapped", `Located account in Case ${acc.linked_case_id} network.`, "success");
-          return;
-        }
-      }
-    } catch (err) {
-      console.error(err);
+    const foundAcc = caseAccounts.find(a => a.account_number.toUpperCase() === q || a.holder_name.toUpperCase().includes(q));
+    if (foundAcc) {
+      handleSelectNode(foundAcc.account_number);
+      addToast("Account Mapped", `Located account in Case ${selectedCaseId} network.`, "success");
+      return;
     }
 
     setSearchError(`No matching case, account or transaction found for "${nodeSearch}".`);

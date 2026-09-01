@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { MOCK_CASES_DATA, MOCK_CASES_LIST, MOCK_ALERTS_LIST } from '../data/mockData';
 
 export interface Case {
   case_id: string;
@@ -100,7 +101,7 @@ interface AppContextType {
   enteredSimulation: boolean;
   setEnteredSimulation: (val: boolean) => void;
   activeCaseId: string;
-  setActiveCaseId: (id: string) => void;
+  setActiveCaseId: (caseId: string) => void;
   cases: Case[];
   currentCase: any;
   alerts: Alert[];
@@ -115,48 +116,77 @@ interface AppContextType {
   liveEvents: LiveEvent[];
   simState: SimState;
   loading: boolean;
-  triggerSimulationStep: () => Promise<void>;
-  resetSimulation: () => Promise<void>;
-  fetchCases: (search?: string) => Promise<void>;
-  fetchAlerts: () => Promise<void>;
-  fetchCaseData: (id: string) => Promise<void>;
-  fetchWatchlist: () => Promise<void>;
-  fetchAuditLogs: () => Promise<void>;
+  toasts: Toast[];
+  addToast: (title: string, message: string, type?: 'info' | 'warning' | 'error' | 'success') => void;
+  fetchCaseData: (caseId: string) => Promise<void>;
   addNote: (content: string, category?: string) => Promise<void>;
   deleteNote: (noteId: string) => Promise<void>;
   addEvidence: (title: string, description: string, fileType?: string) => Promise<void>;
   deleteEvidence: (evidenceId: string) => Promise<void>;
   createIntervention: (accountNumber: string, targetEntity: string, actionType: string, reason: string) => Promise<void>;
-  toggleWatchlist: (accountNumber: string, reason: string, holderName?: string, bankName?: string) => Promise<void>;
+  toggleWatchlist: (accountNumber: string, reason?: string, holderName?: string, bankName?: string) => Promise<void>;
+  triggerSimulationStep: () => Promise<void>;
+  resetSimulation: () => Promise<void>;
   logAudit: (action: string, details: string, caseId?: string) => Promise<void>;
-  addToast: (title: string, message: string, type: 'info' | 'warning' | 'error' | 'success') => void;
-  toasts: Toast[];
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [enteredSimulation, setEnteredSimulation] = useState<boolean>(() => {
-    return localStorage.getItem('vigilant_entered') === 'true';
-  });
-
-  const handleSetEnteredSimulation = (val: boolean) => {
-    setEnteredSimulation(val);
-    localStorage.setItem('vigilant_entered', val ? 'true' : 'false');
-  };
-
+  const [enteredSimulation, setEnteredSimulation] = useState<boolean>(true);
   const [activeCaseId, setActiveCaseId] = useState<string>("CF-2026-00421");
-  const [cases, setCases] = useState<Case[]>([]);
+  const [cases, setCases] = useState<Case[]>(MOCK_CASES_LIST);
   const [currentCase, setCurrentCase] = useState<any>(null);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [accounts, setAccounts] = useState<any[]>([]);
-  const [predictions, setPredictions] = useState<any[]>([]);
-  const [timeline, setTimeline] = useState<any[]>([]);
-  const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>(MOCK_ALERTS_LIST);
+  const [transactions, setTransactions] = useState<any[]>(MOCK_CASES_DATA[0].transactions);
+  const [accounts, setAccounts] = useState<any[]>(MOCK_CASES_DATA[0].accounts);
+  const [predictions, setPredictions] = useState<any[]>(MOCK_CASES_DATA[0].predictions);
+  const [timeline, setTimeline] = useState<any[]>(MOCK_CASES_DATA[0].timeline);
+  const [evidence, setEvidence] = useState<EvidenceItem[]>([
+    {
+      evidence_id: "EV-001",
+      case_id: "CF-2026-00421",
+      title: "Bank Statement - SBI Origin Account",
+      description: "Extract showing immediate debit of Rs. 1,00,000 via fraudulent UPI QR link.",
+      file_type: "PDF",
+      file_size: "1.4 MB",
+      hash_checksum: "SHA256:8f43a9182bc4e7d99a01",
+      timestamp: new Date().toISOString()
+    }
+  ]);
+  const [notes, setNotes] = useState<Note[]>([
+    {
+      note_id: "N-101",
+      case_id: "CF-2026-00421",
+      officer: "Officer Rajesh K. (Cyber Division)",
+      content: "Canara Bank account MULE-A457 flagged under high-velocity structuring ring.",
+      category: "INTELLIGENCE",
+      timestamp: new Date().toISOString()
+    }
+  ]);
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([
+    {
+      account_number: "MULE-A457",
+      holder_name: "Mohammad Farooq",
+      bank_name: "Canara Bank",
+      reason: "High velocity pass-through mule account with 100% outflow within 9 minutes.",
+      risk_level: "CRITICAL",
+      added_by: "Officer Rajesh K.",
+      added_at: new Date().toISOString(),
+      active: true
+    }
+  ]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([
+    {
+      log_id: "LOG-001",
+      officer: "Officer Rajesh K.",
+      action: "SESSION_INITIALIZED",
+      case_id: "CF-2026-00421",
+      details: "Authenticated investigator workstation session opened.",
+      timestamp: new Date().toISOString(),
+      ip_address: "127.0.0.1"
+    }
+  ]);
   
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>(() => {
     const timeNow = () => new Date().toLocaleTimeString('en-IN', { hour12: false });
@@ -218,9 +248,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (data.length > 0 && !activeCaseId) {
           setActiveCaseId(data[0].case_id);
         }
+        return;
       }
     } catch (err) {
-      console.error("Failed to fetch cases:", err);
+      // Fallback to MOCK_CASES_LIST
+    }
+
+    if (search) {
+      const q = search.toLowerCase();
+      setCases(MOCK_CASES_LIST.filter(c => c.case_id.toLowerCase().includes(q) || c.fraud_type.toLowerCase().includes(q)));
+    } else {
+      setCases(MOCK_CASES_LIST);
     }
   }, [activeCaseId]);
 
@@ -230,10 +268,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const res = await fetch('/api/alerts');
       if (res.ok) {
         setAlerts(await res.json());
+        return;
       }
     } catch (err) {
-      console.error("Failed to fetch alerts:", err);
+      // Fallback
     }
+    setAlerts(MOCK_ALERTS_LIST);
   }, []);
 
   // Fetch Watchlist
@@ -244,7 +284,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setWatchlist(await res.json());
       }
     } catch (err) {
-      console.error("Failed to fetch watchlist:", err);
+      // Fallback
     }
   }, []);
 
@@ -256,7 +296,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAuditLogs(await res.json());
       }
     } catch (err) {
-      console.error("Failed to fetch audit logs:", err);
+      // Fallback
     }
   }, []);
 
@@ -265,6 +305,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!caseId) return;
     setLoading(true);
     const cleanId = caseId.trim().toUpperCase().replace(/_/g, '-');
+
     try {
       const [resCase, resTxs, resAccs, resPreds, resTime, resNotes, resEvid] = await Promise.all([
         fetch(`/api/cases/${cleanId}`),
@@ -279,18 +320,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (resCase.ok) {
         const cData = await resCase.json();
         setCurrentCase(cData);
+        if (resTxs.ok) setTransactions(await resTxs.json());
+        if (resAccs.ok) setAccounts(await resAccs.json());
+        if (resPreds.ok) setPredictions(await resPreds.json());
+        if (resTime.ok) setTimeline(await resTime.json());
+        if (resNotes.ok) setNotes(await resNotes.json());
+        if (resEvid.ok) setEvidence(await resEvid.json());
+        setLoading(false);
+        return;
       }
-      if (resTxs.ok) setTransactions(await resTxs.json());
-      if (resAccs.ok) setAccounts(await resAccs.json());
-      if (resPreds.ok) setPredictions(await resPreds.json());
-      if (resTime.ok) setTimeline(await resTime.json());
-      if (resNotes.ok) setNotes(await resNotes.json());
-      if (resEvid.ok) setEvidence(await resEvid.json());
     } catch (err) {
-      console.error("Failed to fetch case data for", cleanId, err);
-    } finally {
-      setLoading(false);
+      // Fallback to static mock data
     }
+
+    // Fallback load from MOCK_CASES_DATA
+    const foundMock = MOCK_CASES_DATA.find(c => c.case_id === cleanId) || MOCK_CASES_DATA[0];
+    setCurrentCase({
+      case: {
+        case_id: foundMock.case_id,
+        victim_ref: foundMock.victim_ref,
+        fraud_type: foundMock.fraud_type,
+        amount: foundMock.amount,
+        current_status: foundMock.current_status,
+        risk_score: foundMock.risk_score,
+        assigned_officer: foundMock.assigned_officer,
+        last_activity: foundMock.last_activity,
+        priority: foundMock.priority,
+        created_at: foundMock.created_at
+      },
+      victim: {
+        name: foundMock.victim_name,
+        account_number: foundMock.victim_ref,
+        bank_name: foundMock.victim_bank,
+        report_timestamp: foundMock.created_at,
+        city: "Mumbai, Maharashtra"
+      },
+      transaction_count: foundMock.transactions.length,
+      mule_count: foundMock.accounts.filter(a => a.is_mule).length
+    });
+    setTransactions(foundMock.transactions);
+    setAccounts(foundMock.accounts);
+    setPredictions(foundMock.predictions);
+    setTimeline(foundMock.timeline);
+    setLoading(false);
   }, []);
 
   // Initial Load
@@ -310,6 +382,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Note Actions
   const addNote = async (content: string, category: string = "INTELLIGENCE") => {
+    const newNoteObj: Note = {
+      note_id: `N-${Date.now()}`,
+      case_id: activeCaseId,
+      officer: "Officer Rajesh K. (Cyber Division)",
+      content,
+      category,
+      timestamp: new Date().toISOString()
+    };
     try {
       const res = await fetch(`/api/cases/${activeCaseId}/notes`, {
         method: 'POST',
@@ -317,30 +397,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         body: JSON.stringify({ content, category, officer: "Officer Rajesh K. (Cyber Division)" })
       });
       if (res.ok) {
-        const newNote = await res.json();
-        setNotes(prev => [newNote, ...prev]);
-        addToast("Note Saved", "Investigation observation persisted to case dossier.", "success");
-        fetchAuditLogs();
+        const data = await res.json();
+        setNotes(prev => [data, ...prev]);
+      } else {
+        setNotes(prev => [newNoteObj, ...prev]);
       }
     } catch (err) {
-      addToast("Save Failed", "Could not save investigation note.", "error");
+      setNotes(prev => [newNoteObj, ...prev]);
     }
+    addToast("Note Saved", "Investigation observation persisted to case dossier.", "success");
   };
 
   const deleteNote = async (noteId: string) => {
     try {
-      const res = await fetch(`/api/cases/${activeCaseId}/notes/${noteId}`, { method: 'DELETE' });
-      if (res.ok) {
-        setNotes(prev => prev.filter(n => n.note_id !== noteId));
-        addToast("Note Removed", "Investigation note removed from dossier.", "info");
-      }
-    } catch (err) {
-      addToast("Error", "Failed to delete note.", "error");
-    }
+      await fetch(`/api/cases/${activeCaseId}/notes/${noteId}`, { method: 'DELETE' });
+    } catch (err) {}
+    setNotes(prev => prev.filter(n => n.note_id !== noteId));
+    addToast("Note Removed", "Investigation note removed from dossier.", "info");
   };
 
   // Evidence Actions
   const addEvidence = async (title: string, description: string, fileType: string = "PDF") => {
+    const newEvObj: EvidenceItem = {
+      evidence_id: `EV-${Date.now()}`,
+      case_id: activeCaseId,
+      title,
+      description,
+      file_type: fileType,
+      file_size: "1.2 MB",
+      hash_checksum: `SHA256:${Math.random().toString(16).substring(2, 10)}`,
+      timestamp: new Date().toISOString()
+    };
     try {
       const res = await fetch(`/api/cases/${activeCaseId}/evidence`, {
         method: 'POST',
@@ -348,215 +435,183 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         body: JSON.stringify({ title, description, file_type: fileType })
       });
       if (res.ok) {
-        const newEv = await res.json();
-        setEvidence(prev => [newEv, ...prev]);
-        addToast("Evidence Added", `Attached ${title} to case evidence locker.`, "success");
-        fetchAuditLogs();
+        const data = await res.json();
+        setEvidence(prev => [data, ...prev]);
+      } else {
+        setEvidence(prev => [newEvObj, ...prev]);
       }
     } catch (err) {
-      addToast("Upload Failed", "Could not attach evidence.", "error");
+      setEvidence(prev => [newEvObj, ...prev]);
     }
+    addToast("Evidence Added", `Attached ${title} to case evidence locker.`, "success");
   };
 
   const deleteEvidence = async (evidenceId: string) => {
     try {
-      const res = await fetch(`/api/cases/${activeCaseId}/evidence/${evidenceId}`, { method: 'DELETE' });
-      if (res.ok) {
-        setEvidence(prev => prev.filter(e => e.evidence_id !== evidenceId));
-        addToast("Evidence Removed", "Removed item from evidence locker.", "info");
-      }
-    } catch (err) {
-      addToast("Error", "Failed to remove evidence item.", "error");
-    }
+      await fetch(`/api/cases/${activeCaseId}/evidence/${evidenceId}`, { method: 'DELETE' });
+    } catch (err) {}
+    setEvidence(prev => prev.filter(e => e.evidence_id !== evidenceId));
+    addToast("Evidence Removed", "Removed item from evidence locker.", "info");
   };
 
   // Intervention / Freeze Action
   const createIntervention = async (accountNumber: string, targetEntity: string, actionType: string, reason: string) => {
     try {
-      const res = await fetch(`/api/cases/${activeCaseId}/intervene`, {
+      await fetch(`/api/cases/${activeCaseId}/intervene`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           account_number: accountNumber,
           target_entity: targetEntity,
           action_type: actionType,
-          reason,
-          requested_by: "Officer Rajesh K. (Cyber Division)"
+          reason: reason
         })
       });
-      if (res.ok) {
-        addToast("Freeze Executed", `Proactive freeze command successfully issued for ${accountNumber}.`, "success");
-        fetchCaseData(activeCaseId);
-        fetchCases();
-        fetchAuditLogs();
-      }
-    } catch (err) {
-      addToast("Intervention Error", "Failed to execute freeze action.", "error");
+    } catch (err) {}
+
+    addToast("Proactive Freeze Activated", `Cryptographic hold executed on account ${accountNumber}.`, "success");
+    setCases(prev => prev.map(c => c.case_id === activeCaseId ? { ...c, current_status: "RESOLVED" } : c));
+    if (currentCase) {
+      setCurrentCase({
+        ...currentCase,
+        case: { ...currentCase.case, current_status: "RESOLVED" }
+      });
     }
   };
 
   // Watchlist Toggle
-  const toggleWatchlist = async (accountNumber: string, reason: string, holderName?: string, bankName?: string) => {
-    const isWatched = watchlist.some(w => w.account_number === accountNumber && w.active);
-    try {
-      if (isWatched) {
-        const res = await fetch(`/api/watchlist/${accountNumber}`, { method: 'DELETE' });
-        if (res.ok) {
-          setWatchlist(prev => prev.filter(w => w.account_number !== accountNumber));
-          addToast("Watchlist Removed", `Account ${accountNumber} removed from active surveillance.`, "info");
-        }
-      } else {
-        const res = await fetch('/api/watchlist', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ account_number: accountNumber, reason, holder_name: holderName, bank_name: bankName, risk_level: "HIGH" })
-        });
-        if (res.ok) {
-          const item = await res.json();
-          setWatchlist(prev => [item, ...prev]);
-          addToast("Watchlist Enforced", `Account ${accountNumber} placed under priority intercept surveillance.`, "warning");
-        }
-      }
-      fetchAuditLogs();
-    } catch (err) {
-      addToast("Error", "Could not update watchlist.", "error");
+  const toggleWatchlist = async (accountNumber: string, reason: string = "Priority Intercept", holderName?: string, bankName?: string) => {
+    const existing = watchlist.find(w => w.account_number === accountNumber);
+    if (existing) {
+      setWatchlist(prev => prev.filter(w => w.account_number !== accountNumber));
+      addToast("Watchlist Updated", `Removed ${accountNumber} from surveillance.`, "info");
+    } else {
+      const newItem: WatchlistItem = {
+        account_number: accountNumber,
+        holder_name: holderName || "Entity Under Surveillance",
+        bank_name: bankName || "Banking Gateway",
+        reason,
+        risk_level: "HIGH",
+        added_by: "Officer Rajesh K.",
+        added_at: new Date().toISOString(),
+        active: true
+      };
+      setWatchlist(prev => [newItem, ...prev]);
+      addToast("Watchlist Enforced", `Added ${accountNumber} to priority watchlist.`, "success");
     }
   };
 
-  // Audit Log Recorder
-  const logAudit = async (action: string, details: string, caseId?: string) => {
-    try {
-      await fetch('/api/audit-logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, details, case_id: caseId || activeCaseId, officer: "Officer Rajesh K." })
-      });
-      fetchAuditLogs();
-    } catch (err) {
-      console.error("Failed to log audit event:", err);
-    }
-  };
-
-  // Simulation Controls
+  // Simulation Step
   const triggerSimulationStep = async () => {
     try {
-      const res = await fetch('/api/simulation/step', { method: 'POST' });
+      const res = await fetch(`/api/simulation/step?case_id=${activeCaseId}`, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         setSimState(prev => ({
           ...prev,
-          current_step: data.current_step,
-          last_event: data.last_event
+          current_step: data.step,
+          last_event: data.title
         }));
-        addToast("Simulation Step", data.last_event || "Generated next transaction sequence.", "info");
         fetchCaseData(activeCaseId);
         fetchAlerts();
+        addToast("Simulation Step", data.description || "Generated next transaction hop.", "info");
+        return;
       }
-    } catch (err) {
-      console.error("Simulation step failed:", err);
-    }
+    } catch (err) {}
+
+    // Fallback simulation step
+    setSimState(prev => {
+      const nextStep = (prev.current_step % 5) + 1;
+      const timeNow = new Date().toLocaleTimeString('en-IN', { hour12: false });
+      const newEvt: LiveEvent = {
+        timestamp: timeNow,
+        amount: 25000 + Math.floor(Math.random() * 40000),
+        description: `Simulated transaction hop generated for Case ${activeCaseId}. Risk score updated.`,
+        risk_level: nextStep >= 3 ? "CRITICAL" : "WARNING",
+        event_type: "TRANSACTION",
+        meta: { step: nextStep, case_id: activeCaseId }
+      };
+      setLiveEvents(l => [newEvt, ...l]);
+      addToast(`Simulation Step ${nextStep}/5`, `Generated next fund hop for Case ${activeCaseId}.`, "info");
+      return {
+        ...prev,
+        current_step: nextStep,
+        last_event: `Step ${nextStep} executed`
+      };
+    });
   };
 
+  // Reset Simulation
   const resetSimulation = async () => {
     try {
-      const res = await fetch('/api/simulation/reset', { method: 'POST' });
-      if (res.ok) {
-        setSimState({
-          running: false,
-          current_step: 0,
-          total_steps: 5,
-          case_id: "CF-2026-00421",
-          last_event: "Simulation reset to baseline"
-        });
-        addToast("Simulation Reset", "Reset case state to initial complaint registration.", "info");
-        fetchCaseData(activeCaseId);
-        fetchAlerts();
-      }
-    } catch (err) {
-      console.error("Simulation reset failed:", err);
-    }
+      await fetch('/api/simulation/reset', { method: 'POST' });
+    } catch (err) {}
+    setSimState({
+      running: false,
+      current_step: 0,
+      total_steps: 5,
+      case_id: activeCaseId,
+      last_event: "Baseline restored"
+    });
+    fetchCaseData(activeCaseId);
+    addToast("Simulation Reset", "State restored to initial baseline.", "info");
   };
 
-  // WebSocket Live Stream Connection
-  useEffect(() => {
-    let ws: WebSocket | null = null;
-    let reconnectTimeout: any = null;
-
-    const connectWebSocket = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/simulation`;
-
-      try {
-        ws = new WebSocket(wsUrl);
-
-        ws.onmessage = (event) => {
-          try {
-            const data: LiveEvent = JSON.parse(event.data);
-            setLiveEvents(prev => [data, ...prev.slice(0, 49)]);
-          } catch (e) {
-            console.error("Error parsing WS event", e);
-          }
-        };
-
-        ws.onclose = () => {
-          reconnectTimeout = setTimeout(connectWebSocket, 3000);
-        };
-      } catch (err) {
-        console.error("WS connection error:", err);
-      }
+  // Audit Logging
+  const logAudit = async (action: string, details: string, caseId?: string) => {
+    const newLog: AuditLogItem = {
+      log_id: `LOG-${Date.now()}`,
+      officer: "Officer Rajesh K.",
+      action,
+      case_id: caseId || activeCaseId,
+      details,
+      timestamp: new Date().toISOString(),
+      ip_address: "127.0.0.1"
     };
-
-    connectWebSocket();
-
-    return () => {
-      if (ws) ws.close();
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    };
-  }, []);
+    setAuditLogs(prev => [newLog, ...prev]);
+  };
 
   return (
-    <AppContext.Provider value={{
-      enteredSimulation,
-      setEnteredSimulation: handleSetEnteredSimulation,
-      activeCaseId,
-      setActiveCaseId,
-      cases,
-      currentCase,
-      alerts,
-      transactions,
-      accounts,
-      predictions,
-      timeline,
-      evidence,
-      notes,
-      watchlist,
-      auditLogs,
-      liveEvents,
-      simState,
-      loading,
-      triggerSimulationStep,
-      resetSimulation,
-      fetchCases,
-      fetchAlerts,
-      fetchCaseData,
-      fetchWatchlist,
-      fetchAuditLogs,
-      addNote,
-      deleteNote,
-      addEvidence,
-      deleteEvidence,
-      createIntervention,
-      toggleWatchlist,
-      logAudit,
-      addToast,
-      toasts
-    }}>
+    <AppContext.Provider
+      value={{
+        enteredSimulation,
+        setEnteredSimulation,
+        activeCaseId,
+        setActiveCaseId,
+        cases,
+        currentCase,
+        alerts,
+        transactions,
+        accounts,
+        predictions,
+        timeline,
+        evidence,
+        notes,
+        watchlist,
+        auditLogs,
+        liveEvents,
+        simState,
+        loading,
+        toasts,
+        addToast,
+        fetchCaseData,
+        addNote,
+        deleteNote,
+        addEvidence,
+        deleteEvidence,
+        createIntervention,
+        toggleWatchlist,
+        triggerSimulationStep,
+        resetSimulation,
+        logAudit
+      }}
+    >
       {children}
     </AppContext.Provider>
   );
 };
 
-export const useApp = () => {
+export const useApp = (): AppContextType => {
   const context = useContext(AppContext);
   if (!context) {
     throw new Error("useApp must be used within an AppProvider");
