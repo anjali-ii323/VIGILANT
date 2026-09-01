@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
-from .routers import cases, accounts, transactions, predictions, alerts, reports, search, simulation
+from .routers import cases, accounts, transactions, predictions, alerts, reports, search, simulation, audit, watchlist, compare
 from .websocket_manager import manager
 from .seed import seed_db
 
@@ -32,6 +32,9 @@ app.include_router(alerts.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(simulation.router, prefix="/api")
+app.include_router(audit.router, prefix="/api")
+app.include_router(watchlist.router, prefix="/api")
+app.include_router(compare.router, prefix="/api")
 
 @app.on_event("startup")
 def startup_event():

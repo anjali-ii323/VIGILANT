@@ -2,52 +2,85 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom Scrollbar styling for dense tables */
+@layer base {
+  body {
+    @apply bg-canvas-950 text-text-primary font-sans antialiased selection:bg-steel-500/20 selection:text-steel-300;
+  }
+}
+
+/* Custom dark scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #050609;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
+  background: #171C26;
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #3B82F6;
 }
 
-/* Custom leaflet map fixes */
+/* Leaflet Dark OpenStreetMap Overrides (Zero Watermark) */
 .leaflet-container {
+  background-color: #050609 !important;
   font-family: inherit;
 }
 
-/* Custom pulse animations for high risk targets */
-@keyframes pulse-risk {
+.leaflet-tile {
+  filter: brightness(0.6) invert(1) contrast(2.5) hue-rotate(200deg) saturate(0.2) !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: #0D1016 !important;
+  color: #F2F3F5 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.8) !important;
+  border-radius: 4px !important;
+}
+
+.leaflet-popup-tip {
+  background: #0D1016 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Subtle Marker Pulse */
+@keyframes subtle-pulse-blue {
   0%, 100% {
     transform: scale(1);
     opacity: 1;
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6);
   }
   50% {
-    transform: scale(1.2);
-    opacity: 0.8;
+    transform: scale(1.1);
+    opacity: 0.9;
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
   }
 }
 
-.risk-pulse-red {
-  animation: pulse-risk 2s infinite ease-in-out;
-  background-color: #ef4444;
-  border: 2px solid white;
-  border-radius: 50%;
+@keyframes subtle-pulse-red {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6);
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.9;
+    box-shadow: 0 0 0 8px rgba(220, 38, 38, 0);
+  }
 }
 
-.risk-pulse-orange {
-  animation: pulse-risk 2s infinite ease-in-out;
-  background-color: #f97316;
-  border: 2px solid white;
-  border-radius: 50%;
+.threat-marker-red {
+  animation: subtle-pulse-red 2.5s infinite ease-in-out;
+}
+
+.threat-marker-blue {
+  animation: subtle-pulse-blue 2.5s infinite ease-in-out;
 }

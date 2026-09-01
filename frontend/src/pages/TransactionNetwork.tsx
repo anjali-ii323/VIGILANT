@@ -1,111 +1,70 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, Eye, ShieldAlert, CheckCircle2, ChevronRight, X, 
-  MapPin, Landmark, HelpCircle, ArrowRight, Share2, Filter, Info,
-  TrendingUp, Activity, AlertTriangle, Landmark as BankIcon, DollarSign, Calendar, Compass, RefreshCw
+  MapPin, Landmark, ArrowRight, Share2, Filter, Info,
+  TrendingUp, Activity, AlertTriangle
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { SVGNetworkGraph } from '../components/SVGNetworkGraph';
 
 export const TransactionNetwork: React.FC = () => {
-  const { addToast } = useApp();
+  const { cases, activeCaseId, setActiveCaseId, addToast } = useApp();
   
-  // Cases list loaded from database
-  const [casesList, setCasesList] = useState<any[]>([]);
-  const [selectedCaseId, setSelectedCaseId] = useState<string>('CF-2026-00421');
-  const [currentCase, setCurrentCase] = useState<any>(null);
-
-  // Network dataset loaded for the selected case
+  const [selectedCaseId, setSelectedCaseId] = useState<string>(activeCaseId || 'CF-2026-00421');
   const [caseTransactions, setCaseTransactions] = useState<any[]>([]);
   const [caseAccounts, setCaseAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
 
-  // Graph rendering nodes & edges
+  // Graph rendering lists
   const [nodes, setNodes] = useState<any[]>([]);
   const [edges, setEdges] = useState<any[]>([]);
 
-  // Search input & error state
+  // Search & Filters State
   const [nodeSearch, setNodeSearch] = useState<string>('');
   const [searchError, setSearchError] = useState<string | null>(null);
-
-  // Filters state
   const [filterRiskLevel, setFilterRiskLevel] = useState<string>('ALL');
   const [filterAccountType, setFilterAccountType] = useState<string>('ALL');
   const [filterAmountMin, setFilterAmountMin] = useState<string>('ALL');
 
-  // Sidebar inspection state
+  // Sidebar Inspection State
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [inspectedAccount, setInspectedAccount] = useState<any>(null);
   const [inspectedRisk, setInspectedRisk] = useState<any>(null);
   const [inspectedPrediction, setInspectedPrediction] = useState<any>(null);
   const [inspectedTxs, setInspectedTxs] = useState<any[]>([]);
 
-  // Selected edge state (Transaction details modal)
+  // Selected Edge State (Transaction Details Modal)
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [selectedTxDetail, setSelectedTxDetail] = useState<any>(null);
 
-  // Fetch all cases in database on mount
-  const fetchAllCases = async () => {
+  // Fetch case network dataset
+  const fetchNetworkData = async (caseId: string) => {
+    setLoading(true);
+    const cleanId = caseId.trim().toUpperCase().replace(/_/g, '-');
     try {
-      const res = await fetch('/api/cases');
-      if (res.ok) {
-        const data = await res.json();
-        setCasesList(data);
-        if (data.length > 0) {
-          // If active case in context is set, use it, else default to first
-          const defaultId = data[0].case_id;
-          setSelectedCaseId(defaultId);
-        }
-      }
+      const [resTxs, resAccs] = await Promise.all([
+        fetch(`/api/cases/${cleanId}/transactions`),
+        fetch(`/api/cases/${cleanId}/accounts`)
+      ]);
+      if (resTxs.ok) setCaseTransactions(await resTxs.json());
+      if (resAccs.ok) setCaseAccounts(await resAccs.json());
     } catch (err) {
-      console.error("Failed to load cases list:", err);
+      console.error("Failed to load network dataset:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAllCases();
-  }, []);
-
-  // Fetch transaction network dataset for selected Case ID
-  const fetchCaseNetwork = useCallback(async (caseId: string) => {
-    setLoading(true);
-    try {
-      // 1. Load current case details
-      const resCase = await fetch(`/api/cases/${caseId}`);
-      if (resCase.ok) {
-        setCurrentCase(await resCase.json());
-      }
-
-      // 2. Load case transactions
-      const resTxs = await fetch(`/api/cases/${caseId}/transactions`);
-      if (resTxs.ok) {
-        setCaseTransactions(await resTxs.json());
-      }
-
-      // 3. Load case accounts
-      const resAccs = await fetch(`/api/cases/${caseId}/accounts`);
-      if (resAccs.ok) {
-        setCaseAccounts(await resAccs.json());
-      }
-    } catch (err) {
-      console.error("Failed to fetch case network data:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
     if (selectedCaseId) {
-      fetchCaseNetwork(selectedCaseId);
-      // Clear selections when shifting cases
+      fetchNetworkData(selectedCaseId);
       setSelectedNodeId(null);
       setSelectedEdgeId(null);
       setSelectedTxDetail(null);
-      setSearchError(null);
     }
-  }, [selectedCaseId, fetchCaseNetwork]);
+  }, [selectedCaseId]);
 
-  // Construct money trail layout dynamically based on loaded transactions & accounts
+  // Construct Graph Nodes & Edges dynamically from dataset
   useEffect(() => {
     if (!caseTransactions || caseTransactions.length === 0) {
       setNodes([]);
@@ -113,263 +72,182 @@ export const TransactionNetwork: React.FC = () => {
       return;
     }
 
-    const nodesList: any[] = [];
-    const edgesList: any[] = [];
     const uniqueIds = new Set<string>();
-
-    caseTransactions.forEach((tx: any) => {
-      if (tx.sender_account) uniqueIds.add(tx.sender_account);
-      if (tx.receiver_account) uniqueIds.add(tx.receiver_account);
+    caseTransactions.forEach(t => {
+      if (t.sender_account) uniqueIds.add(t.sender_account);
+      if (t.receiver_account) uniqueIds.add(t.receiver_account);
     });
 
-    const nodeIdsArray = Array.from(uniqueIds);
-    nodeIdsArray.forEach((nodeId) => {
-      if (!nodeId) return;
+    const list = Array.from(uniqueIds);
+    let nodesList = list.map((nodeId) => {
+      const acc = caseAccounts.find(a => a.account_number === nodeId);
+      let type: 'VICTIM' | 'MULE' | 'ATM' | 'BANK_ACCOUNT' | 'MERCHANT' = 'BANK_ACCOUNT';
+      let riskScore = 5.0;
+      let holderName = nodeId;
+      let bankName = "Banking Node";
 
-      let type: 'VICTIM' | 'MULE' | 'BANK_ACCOUNT' | 'ATM' | 'MERCHANT' = 'BANK_ACCOUNT';
-      let x = 200;
-      let y = 150;
-      let score = 5.0;
-
-      // Match account details in case accounts list
-      const accInfo = caseAccounts.find(a => a.account_number === nodeId);
-      if (accInfo) {
-        score = accInfo.risk_score;
-        if (accInfo.is_mule) type = 'MULE';
-        if (accInfo.classification === 'MERCHANT') type = 'MERCHANT';
+      if (acc) {
+        riskScore = acc.risk_score;
+        holderName = acc.holder_name;
+        bankName = acc.bank_name;
+        if (acc.is_mule) type = 'MULE';
+        else if (acc.classification === 'MERCHANT') type = 'MERCHANT';
       }
 
-      if (typeof nodeId === 'string' && nodeId.startsWith('ATM')) {
+      if (nodeId.startsWith('ATM')) {
         type = 'ATM';
-        score = 95.0;
-      } else if (nodeId === currentCase?.victim_ref || (typeof nodeId === 'string' && (nodeId.startsWith('30') || nodeId.includes('VIC')))) {
+        riskScore = 95.0;
+        holderName = "ATM Terminal";
+      } else if (nodeId.startsWith('30') || nodeId.startsWith('VIC')) {
         type = 'VICTIM';
-        score = 5.0;
+        riskScore = 5.0;
+        holderName = "Victim Account";
       }
 
-      // Calculate dynamic layout positions
+      let x = 80, y = 180;
       if (type === 'VICTIM') {
-        x = 90;
-        y = 220;
+        x = 80; y = 180;
       } else if (type === 'ATM') {
-        x = 650;
-        y = 220;
+        x = 580; y = 180;
       } else if (type === 'MERCHANT') {
-        x = 760;
-        y = 110;
+        x = 580; y = 80;
       } else if (type === 'MULE') {
-        const mules = nodeIdsArray.filter(n => {
-          const matchingAcc = caseAccounts.find(a => a.account_number === n);
-          return matchingAcc && matchingAcc.is_mule;
-        });
-        const idx = mules.indexOf(nodeId);
-        x = 250 + (idx >= 0 ? idx : 0) * 160;
-        y = 110 + ((idx >= 0 ? idx : 0) % 2) * 220;
+        const muleIdx = list.indexOf(nodeId);
+        x = 220 + (muleIdx > 0 ? (muleIdx - 1) * 150 : 0);
+        y = 90 + (muleIdx % 2) * 180;
       } else {
-        x = 420;
-        y = 70;
+        x = 340; y = 70;
       }
 
-      nodesList.push({
+      return {
         id: nodeId,
-        label: nodeId,
+        label: `${holderName} (${nodeId})`,
         type,
-        riskScore: score,
+        riskScore,
+        holder_name: holderName,
+        bank_name: bankName,
         x,
         y
-      });
+      };
     });
 
-    caseTransactions.forEach((tx: any, idx: number) => {
-      edgesList.push({
-        id: tx.transaction_id,
-        source: tx.sender_account,
-        target: tx.receiver_account,
-        amount: tx.amount,
-        type: tx.transaction_type,
-        riskScore: tx.risk_score
-      });
-    });
+    let edgesList = caseTransactions.map(t => ({
+      id: t.transaction_id,
+      source: t.sender_account,
+      target: t.receiver_account,
+      amount: t.amount,
+      type: t.transaction_type,
+      riskScore: t.risk_score,
+      timestamp: t.timestamp
+    }));
 
-    // Apply filters
-    let filteredNodes = [...nodesList];
-    let filteredEdges = [...edgesList];
-
-    // Filter by transaction amount
+    // Filters
     if (filterAmountMin !== 'ALL') {
-      const minVal = parseInt(filterAmountMin);
-      filteredEdges = filteredEdges.filter(e => e.amount >= minVal);
-      // Keep only nodes linked to filtered transactions
-      const activeIds = new Set<string>();
-      filteredEdges.forEach(e => {
-        activeIds.add(e.source);
-        activeIds.add(e.target);
+      const min = parseInt(filterAmountMin);
+      edgesList = edgesList.filter(e => e.amount >= min);
+      const activeNodeIds = new Set<string>();
+      edgesList.forEach(e => {
+        activeNodeIds.add(e.source);
+        activeNodeIds.add(e.target);
       });
-      filteredNodes = filteredNodes.filter(n => activeIds.has(n.id));
+      nodesList = nodesList.filter(n => activeNodeIds.has(n.id));
     }
 
-    // Filter by node risk
     if (filterRiskLevel !== 'ALL') {
-      filteredNodes = filteredNodes.filter(n => {
+      nodesList = nodesList.filter(n => {
         if (filterRiskLevel === 'CRITICAL') return n.riskScore >= 80;
         if (filterRiskLevel === 'HIGH') return n.riskScore >= 60 && n.riskScore < 80;
         if (filterRiskLevel === 'MEDIUM') return n.riskScore >= 35 && n.riskScore < 60;
         if (filterRiskLevel === 'LOW') return n.riskScore < 35;
         return true;
       });
-      const activeIds = filteredNodes.map(n => n.id);
-      filteredEdges = filteredEdges.filter(e => activeIds.includes(e.source) && activeIds.includes(e.target));
+      const validIds = nodesList.map(n => n.id);
+      edgesList = edgesList.filter(e => validIds.includes(e.source) && validIds.includes(e.target));
     }
 
-    // Filter by node type
     if (filterAccountType !== 'ALL') {
-      filteredNodes = filteredNodes.filter(n => n.type === filterAccountType);
-      const activeIds = filteredNodes.map(n => n.id);
-      filteredEdges = filteredEdges.filter(e => activeIds.includes(e.source) && activeIds.includes(e.target));
+      nodesList = nodesList.filter(n => n.type === filterAccountType);
+      const validIds = nodesList.map(n => n.id);
+      edgesList = edgesList.filter(e => validIds.includes(e.source) && validIds.includes(e.target));
     }
 
-    // Apply Search with 1-hop expansion
-    if (nodeSearch) {
+    // 1-Hop Search
+    if (nodeSearch.trim()) {
       const q = nodeSearch.toLowerCase().replace(/_/g, '-').trim();
-      
-      // Find core match node
-      const coreMatches = filteredNodes.filter(n => n.id.toLowerCase().includes(q) || n.label.toLowerCase().includes(q));
+      const coreMatches = nodesList.filter(n => n.id.toLowerCase().includes(q) || n.label.toLowerCase().includes(q));
       const coreIds = coreMatches.map(n => n.id);
 
       if (coreIds.length > 0) {
-        // Find connected edges
-        const connectedEdges = filteredEdges.filter(e => coreIds.includes(e.source) || coreIds.includes(e.target));
+        const connectedEdges = edgesList.filter(e => coreIds.includes(e.source) || coreIds.includes(e.target));
         const neighborIds = new Set<string>();
         connectedEdges.forEach(e => {
           neighborIds.add(e.source);
           neighborIds.add(e.target);
         });
-
-        // Retain match node + neighbor nodes
-        filteredNodes = filteredNodes.filter(n => coreIds.includes(n.id) || neighborIds.has(n.id));
-        filteredEdges = connectedEdges;
+        nodesList = nodesList.filter(n => coreIds.includes(n.id) || neighborIds.has(n.id));
+        edgesList = connectedEdges;
       }
     }
 
-    setNodes(filteredNodes);
-    setEdges(filteredEdges);
-  }, [caseTransactions, caseAccounts, currentCase, filterRiskLevel, filterAccountType, filterAmountMin, nodeSearch]);
+    setNodes(nodesList);
+    setEdges(edgesList);
+  }, [caseTransactions, caseAccounts, filterRiskLevel, filterAccountType, filterAmountMin, nodeSearch]);
 
-  // Click handler to load account inspect panel
   const handleSelectNode = async (nodeId: string) => {
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
     setSelectedTxDetail(null);
-    
-    if (nodeId.startsWith('ATM')) {
-      setInspectedAccount({
-        account_number: nodeId,
-        holder_name: "ATM Outlet Terminal",
-        bank_name: nodeId === 'ATM-Z03' ? "Dadar West" : "Bandra Reclamation",
-        classification: "OUTLET",
-        risk_score: nodeId === 'ATM-Z03' ? 95 : 82,
-        linked_case_id: selectedCaseId
-      });
-      setInspectedRisk({
-        risk_score: nodeId === 'ATM-Z03' ? 95 : 82,
-        risk_factors: { "High volume anomaly": 40, "Transaction timing proximity": 30 }
-      });
-      setInspectedPrediction(null);
-      setInspectedTxs(caseTransactions.filter(e => e.target === nodeId || e.receiver_account === nodeId));
-      return;
-    }
 
     try {
-      const resAcc = await fetch(`/api/accounts/${nodeId}`);
-      if (resAcc.ok) {
-        setInspectedAccount(await resAcc.json());
-      }
-      const resRisk = await fetch(`/api/accounts/${nodeId}/risk`);
-      if (resRisk.ok) {
-        setInspectedRisk(await resRisk.json());
-      }
-      const resPred = await fetch(`/api/accounts/${nodeId}/prediction`);
-      if (resPred.ok) {
-        setInspectedPrediction(await resPred.json());
-      }
-      const resHist = await fetch(`/api/accounts/${nodeId}/history`);
-      if (resHist.ok) {
-        setInspectedTxs(await resHist.json());
-      }
+      const [resAcc, resRisk, resPred, resHist] = await Promise.all([
+        fetch(`/api/accounts/${nodeId}`),
+        fetch(`/api/accounts/${nodeId}/risk`),
+        fetch(`/api/accounts/${nodeId}/prediction`),
+        fetch(`/api/accounts/${nodeId}/history`)
+      ]);
+
+      if (resAcc.ok) setInspectedAccount(await resAcc.json());
+      if (resRisk.ok) setInspectedRisk(await resRisk.json());
+      if (resPred.ok) setInspectedPrediction(await resPred.json());
+      if (resHist.ok) setInspectedTxs(await resHist.json());
     } catch (err) {
-      console.error("Failed to inspect account node:", err);
+      console.error("Failed to inspect node:", err);
     }
   };
 
-  // Click handler to load transaction audit modal overlay
   const handleSelectEdge = (edgeId: string) => {
     setSelectedEdgeId(edgeId);
     setSelectedNodeId(null);
     const tx = caseTransactions.find(t => t.transaction_id === edgeId);
-    if (tx) {
-      setSelectedTxDetail(tx);
-    }
+    if (tx) setSelectedTxDetail(tx);
   };
 
-  const handleCloseInspect = () => {
-    setSelectedNodeId(null);
-    setInspectedAccount(null);
-    setInspectedRisk(null);
-    setInspectedPrediction(null);
-    setInspectedTxs([]);
-  };
-
-  // Smart Search logic: parses query and resolves Case, Account, or Transaction links
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSearchError(null);
     if (!nodeSearch.trim()) return;
 
-    const query = nodeSearch.trim().toUpperCase().replace(/_/g, '-');
+    const q = nodeSearch.trim().toUpperCase().replace(/_/g, '-');
 
-    // 1. Check if Query matches Case ID prefix
-    if (query.startsWith('CF-') || query.startsWith('CASE-')) {
-      const formattedCaseId = query.startsWith('CASE-') ? query.replace('CASE-', 'CF-2026-0') : query;
-      const matchedCase = casesList.find(c => c.case_id === formattedCaseId);
+    if (q.startsWith('CF-') || q.startsWith('CASE-')) {
+      const matchedCase = cases.find(c => c.case_id === q);
       if (matchedCase) {
         setSelectedCaseId(matchedCase.case_id);
-        addToast("Case Found", `Switched network view to case ${matchedCase.case_id}`, "success");
+        setActiveCaseId(matchedCase.case_id);
+        addToast("Case Found", `Loaded network for ${matchedCase.case_id}`, "success");
         return;
       }
     }
 
-    // 2. Check if Query matches Transaction ID
-    if (query.startsWith('TXN-')) {
-      try {
-        const res = await fetch(`/api/transactions/${query}`);
-        if (res.ok) {
-          const tx = await res.json();
-          if (tx.linked_case_id) {
-            setSelectedCaseId(tx.linked_case_id);
-            // Delay selection slightly to let case load
-            setTimeout(() => {
-              handleSelectEdge(tx.transaction_id);
-            }, 300);
-            addToast("Transaction Found", `Loading case ${tx.linked_case_id} network...`, "success");
-            return;
-          }
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    }
-
-    // 3. Check if Query matches Account ID
     try {
-      const res = await fetch(`/api/accounts/${query}`);
+      const res = await fetch(`/api/accounts/${q}`);
       if (res.ok) {
         const acc = await res.json();
         if (acc.linked_case_id) {
           setSelectedCaseId(acc.linked_case_id);
-          setTimeout(() => {
-            handleSelectNode(acc.account_number);
-          }, 300);
-          addToast("Account Found", `Loading case ${acc.linked_case_id} network...`, "success");
+          setActiveCaseId(acc.linked_case_id);
+          setTimeout(() => handleSelectNode(acc.account_number), 300);
+          addToast("Account Mapped", `Located account in Case ${acc.linked_case_id} network.`, "success");
           return;
         }
       }
@@ -377,108 +255,64 @@ export const TransactionNetwork: React.FC = () => {
       console.error(err);
     }
 
-    // 4. Fallback search query on database search router
-    try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-      if (res.ok) {
-        const results = await res.json();
-        if (results.length > 0) {
-          const first = results[0];
-          if (first.type === 'CASE') {
-            setSelectedCaseId(first.id);
-            addToast("Case Found", `Switched network to case ${first.id}`, "success");
-          } else if (first.type === 'ACCOUNT') {
-            const accRes = await fetch(`/api/accounts/${first.id}`);
-            if (accRes.ok) {
-              const acc = await accRes.json();
-              if (acc.linked_case_id) {
-                setSelectedCaseId(acc.linked_case_id);
-                setTimeout(() => {
-                  handleSelectNode(acc.account_number);
-                }, 300);
-                addToast("Account Found", `Loading case ${acc.linked_case_id} network...`, "success");
-              }
-            }
-          } else if (first.type === 'TRANSACTION') {
-            const txRes = await fetch(`/api/transactions/${first.id}`);
-            if (txRes.ok) {
-              const tx = await txRes.json();
-              if (tx.linked_case_id) {
-                setSelectedCaseId(tx.linked_case_id);
-                setTimeout(() => {
-                  handleSelectEdge(tx.transaction_id);
-                }, 300);
-                addToast("Transaction Found", `Loading case ${tx.linked_case_id} network...`, "success");
-              }
-            }
-          }
-          return;
-        }
-      }
-    } catch (err) {
-      console.error(err);
-    }
-
-    // If reached here, no matching record exists
     setSearchError(`No matching case, account or transaction found for "${nodeSearch}".`);
-    addToast("Not Found", "No matching record in database.", "error");
   };
 
-  // Inspect summary volume calculations
-  const totalIncoming = inspectedTxs.filter(t => t.receiver_account === selectedNodeId).reduce((sum, t) => sum + t.amount, 0);
-  const totalOutgoing = inspectedTxs.filter(t => t.sender_account === selectedNodeId).reduce((sum, t) => sum + t.amount, 0);
-  const totalMoved = totalIncoming + totalOutgoing;
-
   return (
-    <div className="flex h-[calc(100vh-120px)] w-full overflow-hidden relative gap-6 text-xs">
+    <div className="flex h-[calc(100vh-130px)] w-full overflow-hidden relative gap-6 text-xs font-sans text-text-primary animate-fade-in">
       
-      {/* LEFT GRAPH VIEWER CANVAS COLUMN */}
-      <div className="flex-1 flex flex-col bg-white border rounded shadow-sm overflow-hidden p-4">
+      {/* GRAPH CANVAS COLUMN */}
+      <div className="flex-1 flex flex-col bg-canvas-900 border border-border-subtle rounded overflow-hidden p-4">
         
-        {/* Header and Smart Search Bar */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b pb-3 gap-3">
+        {/* Header & Controls */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b border-border-subtle pb-3 gap-3">
           <div>
-            <h2 className="text-sm font-bold text-navy-950 font-sans uppercase tracking-wider">Transaction Network Explorer</h2>
-            <p className="text-[10px] text-slate-500">Audit transaction hops, highlight suspicious nodes, and inspect details across cases.</p>
+            <span className="text-[9.5px] font-mono uppercase tracking-[0.15em] text-text-muted block">
+              MULTI-HOP RELATIONSHIP TOPOLOGY
+            </span>
+            <h2 className="text-base font-medium text-text-primary font-sans">
+              Money Network Explorer
+            </h2>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Case Selection dropdown */}
-            <div>
-              <select 
-                value={selectedCaseId}
-                onChange={(e) => setSelectedCaseId(e.target.value)}
-                className="border p-1.5 rounded font-mono font-bold bg-white text-navy-950 focus:outline-none"
-              >
-                {casesList.map(c => (
-                  <option key={c.case_id} value={c.case_id}>
-                    NETWORK: {c.case_id} ({c.fraud_type.substring(0, 15)}...)
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Case Dropdown */}
+            <select
+              value={selectedCaseId}
+              onChange={(e) => {
+                setSelectedCaseId(e.target.value);
+                setActiveCaseId(e.target.value);
+              }}
+              className="px-2.5 py-1.5 bg-canvas-950 border border-border-subtle rounded text-xs font-mono text-steel-400 font-semibold focus:outline-none focus:border-steel-500"
+            >
+              {cases.map(c => (
+                <option key={c.case_id} value={c.case_id}>
+                  {c.case_id} ({c.fraud_type.substring(0, 16)}...)
+                </option>
+              ))}
+            </select>
 
-            {/* Smart Search Form */}
-            <form onSubmit={handleSearchSubmit} className="relative flex items-center">
-              <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Search Case, Account, Tx..."
+            {/* Search */}
+            <form onSubmit={handleSearchSubmit} className="relative">
+              <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-2" />
+              <input
+                type="text"
+                placeholder="Search Account, Case, Tx..."
                 value={nodeSearch}
                 onChange={(e) => {
                   setNodeSearch(e.target.value);
                   if (searchError) setSearchError(null);
                 }}
-                className="pl-8 pr-8 py-1.5 border rounded text-xs focus:outline-none focus:ring-1 focus:ring-navy-600 font-mono w-56"
+                className="pl-8 pr-7 py-1.5 bg-canvas-950 border border-border-subtle rounded text-xs font-mono text-text-primary w-48 focus:outline-none focus:border-steel-500"
               />
               {nodeSearch && (
-                <button 
+                <button
                   type="button"
                   onClick={() => {
                     setNodeSearch('');
                     setSearchError(null);
                   }}
-                  className="absolute right-2 top-2.5 text-slate-450 hover:text-slate-650"
+                  className="absolute right-2 top-2 text-text-muted hover:text-text-primary"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -487,45 +321,42 @@ export const TransactionNetwork: React.FC = () => {
           </div>
         </div>
 
-        {/* Filters Row */}
-        <div className="bg-slate-50 border-b p-2.5 grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] font-bold text-slate-600">
+        {/* Filters */}
+        <div className="bg-canvas-950 border-b border-border-subtle p-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] font-mono">
           <div>
-            <label className="block text-[8.5px] text-slate-400 uppercase mb-0.5 font-sans">Risk Threshold</label>
-            <select 
+            <label className="block text-[8.5px] text-text-muted uppercase mb-0.5">Risk Threshold</label>
+            <select
               value={filterRiskLevel}
               onChange={(e) => setFilterRiskLevel(e.target.value)}
-              className="w-full border p-1 rounded bg-white font-sans focus:outline-none text-[10px]"
+              className="w-full p-1 bg-canvas-900 border border-border-subtle rounded text-text-secondary"
             >
-              <option value="ALL">ALL RISK RATINGS</option>
+              <option value="ALL">ALL RISK</option>
               <option value="CRITICAL">CRITICAL (&gt;=80%)</option>
               <option value="HIGH">HIGH (60%-79%)</option>
               <option value="MEDIUM">MEDIUM (35%-59%)</option>
-              <option value="LOW">LOW (&lt;35%)</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-[8.5px] text-slate-400 uppercase mb-0.5 font-sans">Entity Type</label>
-            <select 
+            <label className="block text-[8.5px] text-text-muted uppercase mb-0.5">Entity Type</label>
+            <select
               value={filterAccountType}
               onChange={(e) => setFilterAccountType(e.target.value)}
-              className="w-full border p-1 rounded bg-white font-sans focus:outline-none text-[10px]"
+              className="w-full p-1 bg-canvas-900 border border-border-subtle rounded text-text-secondary"
             >
-              <option value="ALL">ALL ACCOUNT TYPES</option>
-              <option value="VICTIM">VICTIMS</option>
+              <option value="ALL">ALL TYPES</option>
+              <option value="VICTIM">VICTIM ACCOUNTS</option>
               <option value="MULE">MULE ACCOUNTS</option>
               <option value="ATM">ATM TERMINALS</option>
-              <option value="MERCHANT">MERCHANTS</option>
-              <option value="BANK_ACCOUNT">STANDARD ACCOUNTS</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-[8.5px] text-slate-400 uppercase mb-0.5 font-sans">Min Amount</label>
-            <select 
+            <label className="block text-[8.5px] text-text-muted uppercase mb-0.5">Min Amount</label>
+            <select
               value={filterAmountMin}
               onChange={(e) => setFilterAmountMin(e.target.value)}
-              className="w-full border p-1 rounded bg-white font-sans focus:outline-none text-[10px]"
+              className="w-full p-1 bg-canvas-900 border border-border-subtle rounded text-text-secondary"
             >
               <option value="ALL">ALL AMOUNTS</option>
               <option value="10000">₹10,000 & ABOVE</option>
@@ -534,8 +365,7 @@ export const TransactionNetwork: React.FC = () => {
           </div>
 
           <div className="flex items-end">
-            <button 
-              type="button"
+            <button
               onClick={() => {
                 setFilterRiskLevel('ALL');
                 setFilterAccountType('ALL');
@@ -543,205 +373,123 @@ export const TransactionNetwork: React.FC = () => {
                 setNodeSearch('');
                 setSearchError(null);
               }}
-              className="w-full py-1.5 bg-slate-200 hover:bg-slate-250 border rounded text-[9.5px] uppercase font-bold text-slate-700 text-center transition-colors"
+              className="w-full py-1 bg-canvas-850 hover:bg-canvas-800 border border-border-subtle text-text-secondary uppercase rounded text-[9px] transition-colors"
             >
-              Clear Filters
+              Reset Filters
             </button>
           </div>
         </div>
 
-        {/* Error message viewport */}
+        {/* Error Notification */}
         {searchError && (
-          <div className="bg-red-50 text-red-800 p-2 text-[10.5px] border border-red-150 rounded mt-2 font-semibold flex items-center gap-1">
-            <AlertTriangle className="w-4 h-4 text-red-700 shrink-0" />
+          <div className="bg-threat-critical/15 text-threat-critical p-2 text-xs border border-threat-critical/30 rounded mt-2 font-mono flex items-center gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
             <span>{searchError}</span>
           </div>
         )}
 
-        {/* SVG Graph Canvas wrapper */}
+        {/* Graph Viewport */}
         <div className="flex-1 min-h-[300px] relative">
-          {loading ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-slate-50 bg-opacity-70 z-50">
-              <div className="flex flex-col items-center gap-2">
-                <RefreshCw className="w-7 h-7 text-navy-950 animate-spin" />
-                <span className="font-bold text-slate-600">Retrieving case network...</span>
-              </div>
-            </div>
-          ) : nodes.length > 0 ? (
-            <SVGNetworkGraph 
-              nodes={nodes}
-              edges={edges}
-              onSelectNode={handleSelectNode}
-              selectedNodeId={selectedNodeId}
-              onSelectEdge={handleSelectEdge}
-              selectedEdgeId={selectedEdgeId}
-            />
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 p-8 border border-dashed rounded m-2">
-              <Share2 className="w-12 h-12 mb-3 text-slate-300" />
-              <h3 className="font-bold text-slate-750">No network data matching parameters</h3>
-              <p className="text-[10px] text-slate-500 mt-1 max-w-sm text-center">
-                Clear filters or enter a case ID, account number or transaction reference in the search field above to load a network.
-              </p>
-            </div>
-          )}
+          <SVGNetworkGraph
+            nodes={nodes}
+            edges={edges}
+            onSelectNode={handleSelectNode}
+            selectedNodeId={selectedNodeId}
+            onSelectEdge={handleSelectEdge}
+            selectedEdgeId={selectedEdgeId}
+          />
         </div>
+
       </div>
 
-      {/* RIGHT INSIDER SIDE PANEL (Account details) */}
+      {/* RIGHT SIDEBAR INSPECTOR */}
       {selectedNodeId && inspectedAccount && (
-        <aside className="w-80 bg-white border border-slate-200 rounded shadow-sm flex flex-col shrink-0 overflow-y-auto">
-          {/* Header */}
-          <div className="p-3 bg-navy-950 text-white flex justify-between items-center border-b">
+        <aside className="w-80 bg-canvas-900 border border-border-subtle rounded flex flex-col shrink-0 overflow-y-auto animate-fade-in">
+          
+          <div className="p-3 bg-canvas-950 border-b border-border-subtle flex items-center justify-between">
             <div>
-              <span className="text-[9px] uppercase tracking-wider text-navy-450 block font-mono">Entity Inspection</span>
-              <span className="font-mono font-bold">{inspectedAccount.account_number}</span>
+              <span className="text-[8.5px] font-mono uppercase tracking-wider text-text-muted block">ENTITY INSPECTION</span>
+              <span className="font-mono font-semibold text-text-primary text-xs">{inspectedAccount.account_number}</span>
             </div>
-            <button onClick={handleCloseInspect} className="hover:bg-navy-800 p-0.5 rounded text-navy-200">
-              <X className="w-4 h-4" />
+            <button onClick={() => setSelectedNodeId(null)} className="text-text-muted hover:text-text-primary">
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="p-4 space-y-5">
+          <div className="p-4 space-y-4 text-xs font-sans">
             
-            {/* 1. Account Summary */}
-            <div className="space-y-2">
-              <h3 className="font-bold text-slate-700 uppercase text-[10px] tracking-wider border-b pb-1 flex items-center gap-1">
-                <BankIcon className="w-3.5 h-3.5 text-slate-500" />
-                Account Summary
-              </h3>
-              <div className="space-y-1.5 font-sans text-[11px]">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Holder:</span>
-                  <span className="font-semibold text-slate-800">{inspectedAccount.holder_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Institution:</span>
-                  <span className="font-semibold text-slate-750">{inspectedAccount.bank_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">IFSC Code:</span>
-                  <span className="font-mono font-semibold text-slate-700">{inspectedAccount.ifsc_code || "N/A"}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Classification:</span>
-                  <span className={`font-extrabold uppercase text-[9px] border px-1.5 py-0.25 rounded ${
-                    inspectedAccount.is_mule || inspectedAccount.classification === 'MULE' || inspectedAccount.risk_score >= 70
-                      ? 'bg-red-50 text-red-700 border-red-100' 
-                      : 'bg-green-50 text-green-700 border-green-100'
-                  }`}>
-                    {inspectedAccount.is_mule ? "MULE ACCOUNT" : inspectedAccount.classification}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Linked Case:</span>
-                  <span className="font-mono font-bold text-navy-950">{inspectedAccount.linked_case_id || selectedCaseId}</span>
-                </div>
+            {/* Account Details */}
+            <div className="space-y-1.5 text-xs">
+              <span className="font-semibold text-[9.5px] text-text-muted uppercase font-mono block border-b border-border-subtle pb-1">
+                KYC Identity
+              </span>
+              <div className="flex justify-between">
+                <span className="text-text-muted">Holder Name:</span>
+                <span className="font-medium text-text-primary">{inspectedAccount.holder_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-muted">Bank Institution:</span>
+                <span className="text-text-secondary">{inspectedAccount.bank_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-muted">IFSC Code:</span>
+                <span className="font-mono text-text-muted">{inspectedAccount.ifsc_code || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-muted">Classification:</span>
+                <span className={`px-1.5 py-0.2 rounded text-[8.5px] font-mono font-medium ${
+                  inspectedAccount.is_mule ? 'bg-threat-critical/15 text-threat-critical border border-threat-critical/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                }`}>
+                  {inspectedAccount.classification}
+                </span>
               </div>
             </div>
 
-            {/* 2. Ledger Volume Metrics */}
-            <div className="space-y-2">
-              <h3 className="font-bold text-slate-700 uppercase text-[10px] tracking-wider border-b pb-1 flex items-center gap-1">
-                <DollarSign className="w-3.5 h-3.5 text-slate-500" />
-                Volume Metrics
-              </h3>
-              <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
-                <div className="bg-slate-50 p-2 border rounded text-[10px]">
-                  <span className="text-[8px] text-slate-400 uppercase block font-semibold">Incoming Txs</span>
-                  <span className="font-bold text-emerald-800">{inspectedTxs.filter(t => t.receiver_account === selectedNodeId).length} items</span>
-                  <span className="block font-bold text-[10.5px] text-slate-800 mt-0.5">₹{totalIncoming.toLocaleString('en-IN')}</span>
-                </div>
-                <div className="bg-slate-50 p-2 border rounded text-[10px]">
-                  <span className="text-[8px] text-slate-400 uppercase block font-semibold">Outgoing Txs</span>
-                  <span className="font-bold text-red-800">{inspectedTxs.filter(t => t.sender_account === selectedNodeId).length} items</span>
-                  <span className="block font-bold text-[10.5px] text-slate-800 mt-0.5">₹{totalOutgoing.toLocaleString('en-IN')}</span>
-                </div>
-              </div>
-              <div className="bg-navy-950 text-white p-2 rounded text-center font-mono">
-                <span className="text-[8px] text-navy-300 uppercase block font-semibold">Total Velocity Volume</span>
-                <span className="text-xs font-extrabold">₹{totalMoved.toLocaleString('en-IN')}</span>
-              </div>
-            </div>
-
-            {/* 3. Explainable Risk Factors */}
+            {/* Risk Factors */}
             {inspectedRisk && (
               <div className="space-y-2">
-                <h3 className="font-bold text-slate-700 uppercase text-[10px] tracking-wider border-b pb-1 flex items-center gap-1">
-                  <ShieldAlert className="w-3.5 h-3.5 text-slate-500" />
-                  Risk Profile
-                </h3>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-2xl font-extrabold text-navy-950 font-mono">{int(inspectedRisk.risk_score) || inspectedRisk.risk_score}%</span>
-                  <span className="text-[9px] uppercase font-bold text-slate-400">Threat Rating</span>
+                <span className="font-semibold text-[9.5px] text-text-muted uppercase font-mono block border-b border-border-subtle pb-1">
+                  Threat Factor Attribution
+                </span>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xl font-semibold font-mono text-threat-critical">{Math.round(inspectedRisk.risk_score)}%</span>
+                  <span className="text-[9px] font-mono text-text-muted uppercase">Risk Rating</span>
                 </div>
-                
-                <div className="space-y-1 font-mono text-[10.5px]">
+
+                <div className="space-y-1 font-mono text-[10px]">
                   {Object.entries(inspectedRisk.risk_factors || {}).map(([factor, pt]) => (
-                    <div key={factor} className="flex justify-between p-1 bg-slate-50 rounded">
-                      <span className="text-slate-650 truncate max-w-[190px]">{factor}</span>
-                      <span className="font-bold text-red-700">+{String(pt)}</span>
+                    <div key={factor} className="flex justify-between p-1 bg-canvas-950 rounded border border-border-subtle">
+                      <span className="text-text-secondary truncate max-w-[170px]">{factor}</span>
+                      <span className="font-medium text-threat-critical">+{String(pt)}</span>
                     </div>
                   ))}
-                  {Object.keys(inspectedRisk.risk_factors || {}).length === 0 && (
-                    <p className="text-slate-405 italic p-1">No anomalous factors flagged.</p>
-                  )}
                 </div>
               </div>
             )}
 
-            {/* 4. Next Movement Prediction */}
-            {inspectedPrediction && inspectedPrediction.predictions && inspectedPrediction.predictions.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="font-bold text-slate-700 uppercase text-[10px] tracking-wider border-b pb-1 flex items-center gap-1">
-                  <Compass className="w-3.5 h-3.5 text-slate-500" />
-                  Predicted Next Hop
-                </h3>
-                <div className="p-2.5 bg-blue-50 border border-blue-100 rounded-lg text-blue-900">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-blue-950">{inspectedPrediction.predictions[0].target_entity}</span>
-                    <span className="font-bold font-mono">{(inspectedPrediction.predictions[0].probability * 100).toFixed(0)}%</span>
-                  </div>
-                  <p className="text-[10px] text-blue-800 mt-1 leading-relaxed">{inspectedPrediction.predictions[0].explanation}</p>
-                </div>
-              </div>
-            )}
-
-            {/* 5. Transaction Audit */}
+            {/* Ledger Logs */}
             <div className="space-y-2">
-              <h3 className="font-bold text-slate-700 uppercase text-[10px] tracking-wider border-b pb-1 flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                Ledger Logs
-              </h3>
-              
-              <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
-                {inspectedTxs.length > 0 ? (
-                  inspectedTxs.map((tx) => {
-                    const isOutgoing = tx.sender_account === selectedNodeId;
-                    return (
-                      <div key={tx.id || tx.transaction_id} className="p-2 bg-slate-50 rounded border border-slate-100 flex justify-between items-center text-[10px]">
-                        <div>
-                          <span className="font-mono font-bold text-slate-800 block">
-                            {isOutgoing ? `To: ${tx.receiver_account}` : `From: ${tx.sender_account}`}
-                          </span>
-                          <span className="text-[8px] text-slate-400 bg-slate-200 font-mono px-1 rounded uppercase">
-                            {tx.transaction_type}
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <div className={`font-bold ${isOutgoing ? 'text-red-700 font-mono' : 'text-emerald-700 font-mono'}`}>
-                            {isOutgoing ? '-' : '+'}₹{tx.amount.toLocaleString('en-IN')}
-                          </div>
-                          <span className="text-[8px] text-slate-450 font-mono block font-sans">
-                            {tx.timestamp ? new Date(tx.timestamp).toLocaleTimeString() : 'N/A'}
-                          </span>
-                        </div>
+              <span className="font-semibold text-[9.5px] text-text-muted uppercase font-mono block border-b border-border-subtle pb-1">
+                Transaction History ({inspectedTxs.length})
+              </span>
+              <div className="space-y-1 max-h-[160px] overflow-y-auto pr-1">
+                {inspectedTxs.map((tx) => {
+                  const isOut = tx.sender_account === selectedNodeId;
+                  return (
+                    <div key={tx.transaction_id} className="p-1.5 bg-canvas-950 border border-border-subtle rounded text-[9.5px] font-mono flex justify-between items-center">
+                      <div>
+                        <span className="text-text-secondary block">{isOut ? `To: ${tx.receiver_account}` : `From: ${tx.sender_account}`}</span>
+                        <span className="text-[8px] text-text-muted uppercase">{tx.transaction_type}</span>
                       </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-slate-450 p-2 text-center italic">No transactions found.</p>
-                )}
+                      <div className="text-right">
+                        <span className={`font-medium block ${isOut ? 'text-threat-critical' : 'text-emerald-400'}`}>
+                          {isOut ? '-' : '+'}₹{tx.amount?.toLocaleString('en-IN')}
+                        </span>
+                        <span className="text-[7.5px] text-text-muted">{new Date(tx.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -749,76 +497,44 @@ export const TransactionNetwork: React.FC = () => {
         </aside>
       )}
 
-      {/* TRANSACTION DETAILS MODAL OVERLAY */}
+      {/* TRANSACTION MODAL */}
       {selectedTxDetail && (
-        <div className="fixed inset-0 bg-navy-950 bg-opacity-40 z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded border shadow-lg max-w-sm w-full overflow-hidden text-xs">
-            <div className="p-3 bg-navy-950 text-white flex justify-between items-center border-b">
-              <span className="font-mono font-bold">Transaction Audit: {selectedTxDetail.transaction_id}</span>
-              <button 
-                onClick={() => {
-                  setSelectedTxDetail(null);
-                  setSelectedEdgeId(null);
-                }}
-                className="hover:bg-navy-800 p-0.5 rounded text-navy-200"
-              >
-                ✕
-              </button>
+        <div className="fixed inset-0 bg-canvas-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-canvas-900 border border-border-strong rounded max-w-sm w-full p-4 space-y-3 text-xs font-sans text-text-primary shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border-subtle pb-2">
+              <span className="font-mono font-semibold text-steel-400">Audit: {selectedTxDetail.transaction_id}</span>
+              <button onClick={() => setSelectedTxDetail(null)} className="text-text-muted hover:text-text-primary">✕</button>
             </div>
-            
-            <div className="p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3 border-b pb-2.5">
-                <div>
-                  <span className="text-slate-450 uppercase text-[9px] font-bold block">Method</span>
-                  <span className="font-bold text-slate-800">{selectedTxDetail.transaction_type}</span>
-                </div>
-                <div>
-                  <span className="text-slate-450 uppercase text-[9px] font-bold block">Risk Rating</span>
-                  <span className="font-mono font-bold text-red-700">{selectedTxDetail.risk_score || selectedTxDetail.riskScore}%</span>
-                </div>
-              </div>
 
-              <div className="space-y-1.5 text-[11px]">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Source:</span>
-                  <span className="font-mono font-bold text-slate-900">{selectedTxDetail.sender_account}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Destination:</span>
-                  <span className="font-mono font-bold text-slate-900">{selectedTxDetail.receiver_account}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Amount:</span>
-                  <span className="font-bold text-navy-950 text-sm">₹{selectedTxDetail.amount.toLocaleString('en-IN')}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Timestamp:</span>
-                  <span className="font-mono text-slate-800">
-                    {selectedTxDetail.timestamp ? new Date(selectedTxDetail.timestamp).toLocaleString('en-IN') : 'N/A'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Case Linkage:</span>
-                  <span className="font-mono text-slate-700 font-semibold">{selectedTxDetail.linked_case_id || selectedCaseId}</span>
-                </div>
-                <div className="flex justify-between border-t pt-1.5 mt-1">
-                  <span className="text-slate-500 font-medium font-sans">Clearance Status:</span>
-                  <span className="text-emerald-800 bg-emerald-50 px-1.5 py-0.25 rounded border border-emerald-100 font-bold uppercase tracking-wider text-[9px]">
-                    VERIFIED IN DB
-                  </span>
-                </div>
+            <div className="space-y-1.5 font-mono text-xs">
+              <div className="flex justify-between">
+                <span className="text-text-muted">Method:</span>
+                <span className="text-text-primary">{selectedTxDetail.transaction_type}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-muted">Threat Rating:</span>
+                <span className="font-semibold text-threat-critical">{selectedTxDetail.risk_score}%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-muted">Sender:</span>
+                <span className="text-text-secondary">{selectedTxDetail.sender_account}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-muted">Receiver:</span>
+                <span className="text-text-secondary">{selectedTxDetail.receiver_account}</span>
+              </div>
+              <div className="flex justify-between border-t border-border-subtle pt-1.5">
+                <span className="text-text-muted">Amount:</span>
+                <span className="font-semibold text-steel-400 text-sm">₹{selectedTxDetail.amount?.toLocaleString('en-IN')}</span>
               </div>
             </div>
-            
-            <div className="bg-slate-50 p-3 border-t flex justify-end">
-              <button 
-                onClick={() => {
-                  setSelectedTxDetail(null);
-                  setSelectedEdgeId(null);
-                }}
-                className="px-3.5 py-1.5 bg-navy-950 text-white rounded font-bold hover:bg-navy-900"
+
+            <div className="flex justify-end pt-2 border-t border-border-subtle">
+              <button
+                onClick={() => setSelectedTxDetail(null)}
+                className="px-3 py-1 bg-canvas-850 hover:bg-canvas-800 border border-border-subtle text-text-secondary rounded font-mono text-xs"
               >
-                Close Audit
+                Close
               </button>
             </div>
           </div>
@@ -828,9 +544,5 @@ export const TransactionNetwork: React.FC = () => {
     </div>
   );
 };
-
-function int(val: any) {
-  return typeof val === 'number' ? Math.round(val) : parseInt(val);
-}
 
 export default TransactionNetwork;

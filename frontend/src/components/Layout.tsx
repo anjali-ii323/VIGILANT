@@ -1,133 +1,76 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
-  ShieldAlert, LayoutDashboard, Briefcase, Activity, Share2, 
-  Fingerprint, Compass, Bell, Search, AlertCircle, FileText, Settings, Database,
-  Landmark, User, X
+  Activity, Share2, AlertTriangle, FileText, Search, Play, RotateCcw, 
+  Settings as SettingsIcon, Bell, ChevronDown, CheckCircle2, User, Landmark,
+  MapPin, TrendingUp, Compass, FolderGit2, Cpu, Eye, ShieldCheck, Scale, ArrowRight,
+  LogOut, Shield
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { WatchlistDrawer } from './WatchlistDrawer';
+import { AuditLogModal } from './AuditLogModal';
 
-export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { simState, alerts, activeCaseId, setActiveCaseId, toasts, fetchAlerts, addToast } = useApp();
+interface LayoutProps {
+  children: React.ReactNode;
+}
+
+export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [searchVal, setSearchVal] = useState<string>('');
-  
-  // Search Autocomplete State
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [showSearchDropdown, setShowSearchDropdown] = useState<boolean>(false);
-  const searchRef = useRef<HTMLDivElement>(null);
+  const { 
+    activeCaseId, 
+    setActiveCaseId, 
+    cases, 
+    alerts, 
+    simState, 
+    triggerSimulationStep, 
+    resetSimulation, 
+    toasts,
+    setEnteredSimulation
+  } = useApp();
 
-  // Notifications Popover State
-  const [showNotifications, setShowNotifications] = useState<boolean>(false);
-  const notifRef = useRef<HTMLDivElement>(null);
+  const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
+  const [isAuditOpen, setIsAuditOpen] = useState(false);
+  const [caseDropdownOpen, setCaseDropdownOpen] = useState(false);
 
-  const activeAlerts = alerts.filter(a => a.status === 'ACTIVE');
-  const activeAlertsCount = activeAlerts.length;
+  const activeAlertsCount = alerts.filter(a => a.status === 'ACTIVE').length;
 
   const navItems = [
-    { name: 'Overview', path: '/', icon: LayoutDashboard },
-    { name: 'Cases', path: '/cases', icon: Briefcase },
-    { name: 'Live Monitoring', path: '/live', icon: Activity },
-    { name: 'Transaction Network', path: '/network', icon: Share2 },
-    { name: 'Risk Intelligence', path: '/risk', icon: Fingerprint },
-    { name: 'Cash-Out Prediction', path: '/cashout', icon: Compass },
-    { name: 'Alerts', path: '/alerts', icon: AlertCircle },
-    { name: 'Investigation', path: '/investigate', icon: ShieldAlert },
+    { name: 'Overview', path: '/', icon: Activity },
+    { name: 'Cases', path: '/cases', icon: FolderGit2 },
+    { name: 'Live Monitor', path: '/live', icon: Play },
+    { name: 'Money Network', path: '/network', icon: Share2 },
+    { name: 'Risk Intelligence', path: '/risk', icon: Cpu },
+    { name: 'Predictions', path: '/predictions', icon: Compass },
+    { name: 'Cash-Out Intelligence', path: '/cashout', icon: MapPin },
+    { name: 'Alerts', path: '/alerts', icon: Bell, badge: activeAlertsCount },
+    { name: 'Investigation', path: '/investigation', icon: Search },
     { name: 'Reports', path: '/reports', icon: FileText },
-    { name: 'Settings', path: '/settings', icon: Settings },
+    { name: 'Case Compare', path: '/compare', icon: Scale },
+    { name: 'Settings', path: '/settings', icon: SettingsIcon },
   ];
 
-  // Fetch search results as user types (debounced)
-  useEffect(() => {
-    if (searchVal.trim().length >= 2) {
-      const delay = setTimeout(async () => {
-        try {
-          const res = await fetch(`/api/search?q=${encodeURIComponent(searchVal)}`);
-          if (res.ok) {
-            const data = await res.json();
-            setSearchResults(data);
-            setShowSearchDropdown(true);
-          }
-        } catch (err) {
-          console.error("Search query failed:", err);
-        }
-      }, 250);
-      return () => clearTimeout(delay);
-    } else {
-      setSearchResults([]);
-      setShowSearchDropdown(false);
-    }
-  }, [searchVal]);
-
-  // Click outside handlers to close overlays
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setShowSearchDropdown(false);
-      }
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setShowNotifications(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, []);
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchVal.trim()) {
-      setActiveCaseId(searchVal.trim().toUpperCase());
-      setSearchVal('');
-      setShowSearchDropdown(false);
-      navigate(`/cases/${searchVal.trim().toUpperCase()}`);
-    }
-  };
-
-  const handleSelectResult = (item: any) => {
-    setShowSearchDropdown(false);
-    setSearchVal('');
-    if (item.type === 'CASE') {
-      setActiveCaseId(item.id);
-      navigate(`/cases/${item.id}`);
-    } else if (item.type === 'ACCOUNT') {
-      navigate(`/risk`);
-    } else if (item.type === 'ALERT') {
-      navigate(`/alerts`);
-    } else if (item.type === 'TRANSACTION') {
-      navigate(`/network`);
-    }
-  };
-
-  const handleResolveAlert = async (alertId: string, caseId: string) => {
-    try {
-      const res = await fetch(`/api/alerts/${alertId}/resolve`, { method: 'POST' });
-      if (res.ok) {
-        addToast("Alert Resolved", "Incident cleared from queue.", "success");
-        fetchAlerts();
-        setActiveCaseId(caseId);
-        navigate(`/cases/${caseId}`);
-        setShowNotifications(false);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f8]">
+    <div className="flex h-screen w-screen overflow-hidden bg-canvas-950 text-text-primary font-sans antialiased">
       
-      {/* 1. LEFT SIDEBAR */}
-      <aside className="w-64 bg-navy-950 text-slate-100 flex flex-col border-r border-navy-800 shrink-0">
-        <div className="p-4 border-b border-navy-800 flex items-center gap-3 bg-navy-900">
-          <Database className="w-6 h-6 text-navy-400 stroke-[2]" />
-          <div>
-            <h1 className="font-extrabold text-sm tracking-wider text-white font-mono">VIGILANT</h1>
-            <p className="text-[9px] text-navy-300 font-mono tracking-tight">Cybercrime Intel SIH26184</p>
-          </div>
+      {/* 1. NARROW ELEGANT SIDEBAR */}
+      <aside className="w-16 lg:w-56 bg-canvas-950 border-r border-border-subtle flex flex-col shrink-0 select-none z-30 transition-all duration-200">
+        
+        {/* Minimal Brand Wordmark Header */}
+        <div className="h-16 px-4 border-b border-border-subtle flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-2.5">
+            <div className="w-6 h-6 rounded bg-canvas-800 border border-border-strong flex items-center justify-center text-text-primary text-[11px] font-mono font-bold tracking-tight shrink-0">
+              V
+            </div>
+            <div className="hidden lg:block overflow-hidden">
+              <h1 className="font-bold text-xs tracking-[0.15em] font-mono text-text-primary uppercase truncate">VIGILANT</h1>
+              <p className="text-[8px] text-text-muted font-sans tracking-wider truncate uppercase">Financial Intel &middot; SIH26184</p>
+            </div>
+          </Link>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        {/* Clean Line Nav Items */}
+        <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path || 
               (item.name === 'Cases' && location.pathname.startsWith('/cases'));
@@ -136,17 +79,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <Link
                 key={item.name}
                 to={item.path}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded text-xs font-medium font-sans transition-colors ${
+                className={`flex items-center gap-3 px-3 py-2 rounded text-xs font-sans transition-colors group ${
                   isActive 
-                    ? 'bg-navy-800 text-white border-l-2 border-orange-500' 
-                    : 'text-slate-400 hover:bg-navy-900 hover:text-white'
+                    ? 'bg-canvas-800 text-steel-400 font-medium' 
+                    : 'text-text-secondary hover:bg-canvas-900 hover:text-text-primary'
                 }`}
+                title={item.name}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-orange-500' : 'text-slate-500'}`} />
-                <span>{item.name}</span>
-                {item.name === 'Alerts' && activeAlertsCount > 0 && (
-                  <span className="ml-auto px-1.5 py-0.5 text-[9px] font-bold bg-red-700 text-white rounded-full">
-                    {activeAlertsCount}
+                <Icon className={`w-3.5 h-3.5 shrink-0 stroke-[1.7] ${isActive ? 'text-steel-400' : 'text-text-muted group-hover:text-text-primary'}`} />
+                <span className="hidden lg:inline truncate text-[11.5px]">{item.name}</span>
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className="hidden lg:flex ml-auto px-1.5 py-0.2 rounded text-[8.5px] font-mono font-semibold bg-threat-critical/20 text-threat-critical border border-threat-critical/30">
+                    {item.badge}
                   </span>
                 )}
               </Link>
@@ -154,180 +98,170 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           })}
         </nav>
 
-        <div className="p-3 border-t border-navy-850 bg-navy-950 text-[10px] font-mono text-slate-505 flex flex-col gap-1.5">
-          <div className="flex items-center gap-1.5 text-slate-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span>System Status: ONLINE</span>
-          </div>
-          <div className="text-slate-550 uppercase text-[9px] font-bold tracking-wider">
-            SIMULATION ENVIRONMENT
-          </div>
-          <div className="text-[8px] text-slate-600 leading-normal border-t border-navy-900 pt-1.5">
-            Vigilant is a prototype using synthetic transaction data. It does not connect to real banking, NPCI, or government systems.
+        {/* Bottom Utility Tools & Status */}
+        <div className="p-2 border-t border-border-subtle bg-canvas-950 space-y-0.5">
+          <button
+            onClick={() => setIsWatchlistOpen(true)}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-canvas-900 rounded transition-colors"
+            title="Open Watchlist"
+          >
+            <Eye className="w-3.5 h-3.5 text-text-muted shrink-0 stroke-[1.7]" />
+            <span className="hidden lg:inline text-[11px]">Watchlist</span>
+          </button>
+
+          <button
+            onClick={() => setIsAuditOpen(true)}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-canvas-900 rounded transition-colors"
+            title="Judicial Audit Trail"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-text-muted shrink-0 stroke-[1.7]" />
+            <span className="hidden lg:inline text-[11px]">Audit Log</span>
+          </button>
+
+          <div className="hidden lg:block pt-2 border-t border-border-subtle text-[8.5px] font-mono text-text-muted px-2 leading-relaxed">
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span className="text-text-secondary font-medium">SYSTEM OPERATIONAL</span>
+            </div>
+            <span>SIMULATION ENVIRONMENT</span>
           </div>
         </div>
+
       </aside>
 
-      {/* 2. MAIN APPLICATION CONTENT COLUMN */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* 2. MAIN APPLICATION VIEWPORT */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-canvas-950">
         
-        {/* TOP BAR */}
-        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm shrink-0 z-50">
+        {/* MINIMAL TOP COMMAND BAR */}
+        <header className="h-16 bg-canvas-950 border-b border-border-subtle flex items-center justify-between px-6 shrink-0 z-20">
           
-          {/* Autocomplete Search input */}
-          <div ref={searchRef} className="relative w-80">
-            <form onSubmit={handleSearchSubmit} className="relative">
-              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search Case, Account, Tx..."
-                value={searchVal}
-                onChange={(e) => setSearchVal(e.target.value)}
-                className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-navy-600 font-mono"
-              />
-            </form>
-
-            {showSearchDropdown && searchResults.length > 0 && (
-              <div className="absolute top-10 left-0 right-0 bg-white border rounded shadow-lg z-[9999] overflow-hidden text-xs max-h-64 overflow-y-auto">
-                <div className="bg-slate-50 p-1.5 border-b text-[10px] font-bold text-slate-400 font-mono">
-                  SEARCH RESULTS
-                </div>
-                {searchResults.map((item, idx) => (
-                  <div 
-                    key={idx}
-                    onClick={() => handleSelectResult(item)}
-                    className="p-2.5 hover:bg-slate-50 cursor-pointer border-b last:border-b-0 flex flex-col gap-0.5"
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-navy-950 font-mono">{item.id}</span>
-                      <span className="text-[9px] bg-slate-100 text-slate-500 font-mono px-1 rounded uppercase">
-                        {item.type}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-slate-600 truncate">{item.title}</div>
-                    <div className="text-[9px] text-slate-400 font-mono truncate">{item.subtitle}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
+          {/* Left: Breadcrumbs & Global Case Selector */}
           <div className="flex items-center gap-4">
             
-            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 px-3 py-1 rounded">
-              <span className="w-2 h-2 bg-amber-500 rounded-full animate-ping" />
-              <span className="text-[10px] font-bold text-amber-800 font-mono tracking-wider uppercase">
-                {simState.running ? 'SIMULATION RUNNING' : 'SIMULATION MODE'}
-              </span>
-            </div>
-
-            {/* Notifications Popover */}
-            <div ref={notifRef} className="relative">
-              <div 
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="relative cursor-pointer hover:bg-slate-100 p-1.5 rounded"
+            {/* Global Case Switcher */}
+            <div className="relative">
+              <button
+                onClick={() => setCaseDropdownOpen(!caseDropdownOpen)}
+                className="flex items-center gap-2 px-2.5 py-1.5 bg-canvas-900 hover:bg-canvas-850 border border-border-subtle hover:border-border-strong rounded text-xs font-mono transition-colors text-text-primary"
               >
-                <Bell className="w-4 h-4 text-slate-650" />
-                {activeAlertsCount > 0 && (
-                  <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-600 text-white text-[8px] font-extrabold flex items-center justify-center rounded-full">
-                    {activeAlertsCount}
-                  </span>
-                )}
-              </div>
+                <span className="text-text-muted text-[10px]">CASE:</span>
+                <span className="font-semibold text-steel-400">{activeCaseId}</span>
+                <ChevronDown className="w-3 h-3 text-text-muted ml-0.5" />
+              </button>
 
-              {showNotifications && (
-                <div className="absolute right-0 top-10 w-80 bg-white border rounded shadow-lg z-[9999] overflow-hidden text-xs">
-                  <div className="p-3 bg-slate-50 border-b flex justify-between items-center">
-                    <span className="font-bold text-navy-950 font-sans">Surveillance Alerts ({activeAlertsCount})</span>
-                    <button 
-                      onClick={() => setShowNotifications(false)}
-                      className="hover:bg-slate-200 p-0.5 rounded text-slate-400"
+              {caseDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 w-64 bg-canvas-850 border border-border-strong rounded shadow-2xl z-50 py-1 max-h-72 overflow-y-auto text-xs animate-fade-in font-sans">
+                  <div className="px-3 py-1.5 border-b border-border-subtle text-[9px] uppercase tracking-wider text-text-muted font-mono">
+                    Select Investigation Case
+                  </div>
+                  {cases.map((c) => (
+                    <button
+                      key={c.case_id}
+                      onClick={() => {
+                        setActiveCaseId(c.case_id);
+                        setCaseDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 flex items-center justify-between hover:bg-canvas-800 transition-colors ${
+                        c.case_id === activeCaseId ? 'bg-steel-500/10 text-steel-400 font-medium' : 'text-text-secondary'
+                      }`}
                     >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  
-                  <div className="max-h-64 overflow-y-auto divide-y">
-                    {activeAlerts.length > 0 ? (
-                      activeAlerts.map((alert) => (
-                        <div key={alert.alert_id} className="p-3 hover:bg-slate-50 space-y-1.5">
-                          <div className="flex justify-between items-center">
-                            <span className="font-bold font-mono text-[10px]">{alert.alert_id}</span>
-                            <span className={`px-1.5 py-0.25 text-[8px] font-extrabold rounded uppercase ${
-                              alert.severity === 'CRITICAL' ? 'bg-red-150 text-red-800' : 'bg-amber-100 text-amber-800'
-                            }`}>
-                              {alert.severity}
-                            </span>
-                          </div>
-                          <div className="font-semibold text-slate-800">{alert.title}</div>
-                          <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed">{alert.description}</p>
-                          <div className="flex justify-between pt-1">
-                            <button 
-                              onClick={() => {
-                                setShowNotifications(false);
-                                setActiveCaseId(alert.case_id);
-                                navigate(`/cases/${alert.case_id}`);
-                              }}
-                              className="text-[9px] text-navy-900 font-bold hover:underline"
-                            >
-                              Investigate Case
-                            </button>
-                            <button 
-                              onClick={() => handleResolveAlert(alert.alert_id, alert.case_id)}
-                              className="text-[9px] text-emerald-800 font-bold hover:underline"
-                            >
-                              Resolve
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-6 text-center text-slate-400">
-                        No active unread alarms in queue.
+                      <div className="truncate pr-2">
+                        <span className="font-mono text-[11px] block">{c.case_id}</span>
+                        <span className="text-[10px] text-text-muted truncate block">{c.fraud_type}</span>
                       </div>
-                    )}
-                  </div>
+                      <span className="font-mono text-[10px] text-text-secondary shrink-0">₹{(c.amount / 1000).toFixed(0)}K</span>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
 
-            <div className="h-6 w-px bg-slate-200" />
-
-            <div className="text-right">
-              <div className="text-xs font-bold text-navy-950">Rajesh K.</div>
-              <div className="text-[9px] text-slate-500 font-mono">Senior Cyber Investigator</div>
+            {/* Simulation Step Action Pill */}
+            <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-canvas-900 border border-border-subtle rounded text-xs font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span className="text-[10px] text-text-muted uppercase">STEP {simState.current_step}/5</span>
+              <button
+                onClick={triggerSimulationStep}
+                className="ml-2 px-2 py-0.5 bg-canvas-800 hover:bg-canvas-750 text-steel-400 border border-border-subtle rounded text-[9px] font-medium flex items-center gap-1 transition-colors"
+                title="Advance simulation"
+              >
+                <Play className="w-2.5 h-2.5" />
+                <span>Simulate Step</span>
+              </button>
+              <button
+                onClick={resetSimulation}
+                className="px-1 py-0.5 text-text-muted hover:text-text-primary transition-colors"
+                title="Reset simulation"
+              >
+                <RotateCcw className="w-2.5 h-2.5" />
+              </button>
             </div>
+
           </div>
+
+          {/* Right: Officer Badge & Exit */}
+          <div className="flex items-center gap-4 text-xs font-sans">
+            
+            {/* Officer Profile Badge */}
+            <div className="flex items-center gap-2.5 px-3 py-1 bg-canvas-900 border border-border-subtle rounded">
+              <div className="w-5 h-5 rounded bg-canvas-800 border border-border-strong flex items-center justify-center text-text-secondary text-[9.5px] font-mono font-semibold">
+                RK
+              </div>
+              <div className="hidden md:block text-left">
+                <span className="block text-[11px] text-text-primary font-medium">Officer Rajesh K.</span>
+                <span className="block text-[8px] font-mono text-text-muted uppercase">Cyber Division &middot; L3</span>
+              </div>
+            </div>
+
+            {/* Exit to Presentation */}
+            <button
+              onClick={() => setEnteredSimulation(false)}
+              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-canvas-900 rounded transition-colors"
+              title="Return to Presentation Screen"
+            >
+              <LogOut className="w-4 h-4 stroke-[1.7]" />
+            </button>
+
+          </div>
+
         </header>
 
-        {/* 3. SCROLLABLE INNER PAGE */}
-        <main className="flex-1 overflow-y-auto p-6 relative">
-          {children}
+        {/* 3. SCROLLABLE WORKSPACE CANVAS WITH GENEROUS WHITESPACE */}
+        <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-canvas-950 relative">
+          <div className="max-w-[1500px] mx-auto min-h-full">
+            {children}
+          </div>
         </main>
+
       </div>
 
-      {/* 4. FLOATING TOAST STACK */}
-      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm">
-        {toasts.map((toast) => {
-          let bg = 'bg-white border-blue-500';
-          let txt = 'text-blue-800';
-          if (toast.type === 'warning') { bg = 'bg-amber-50 border-amber-500'; txt = 'text-amber-800'; }
-          else if (toast.type === 'error') { bg = 'bg-red-50 border-red-500'; txt = 'text-red-800'; }
-          else if (toast.type === 'success') { bg = 'bg-emerald-50 border-emerald-500'; txt = 'text-emerald-800'; }
-
-          return (
-            <div 
-              key={toast.id}
-              className={`p-3 border-l-4 rounded shadow-lg flex flex-col gap-0.5 transition-all duration-300 transform translate-y-0 ${bg}`}
-            >
-              <div className={`text-xs font-bold ${txt}`}>{toast.title}</div>
-              <div className="text-[10px] text-slate-650">{toast.message}</div>
+      {/* 4. RESTRAINED TOAST NOTIFICATIONS */}
+      <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-2 max-w-xs w-full pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className="pointer-events-auto p-3 rounded bg-canvas-850 border border-border-strong shadow-panel text-xs flex items-start gap-2.5"
+          >
+            <div className="mt-0.5 shrink-0">
+              {toast.type === 'success' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+              {toast.type === 'error' && <AlertTriangle className="w-3.5 h-3.5 text-threat-critical" />}
+              {toast.type === 'warning' && <AlertTriangle className="w-3.5 h-3.5 text-threat-high" />}
+              {toast.type === 'info' && <Activity className="w-3.5 h-3.5 text-steel-400" />}
             </div>
-          );
-        })}
+            <div className="flex-1">
+              <h5 className="font-semibold text-[11px] text-text-primary">{toast.title}</h5>
+              <p className="text-[10.5px] text-text-secondary mt-0.5 leading-snug">{toast.message}</p>
+            </div>
+          </div>
+        ))}
       </div>
+
+      {/* 5. DRAWERS & MODALS */}
+      <WatchlistDrawer isOpen={isWatchlistOpen} onClose={() => setIsWatchlistOpen(false)} />
+      <AuditLogModal isOpen={isAuditOpen} onClose={() => setIsAuditOpen(false)} />
 
     </div>
   );
 };
+
 export default Layout;

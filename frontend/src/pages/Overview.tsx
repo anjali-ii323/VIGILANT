@@ -1,288 +1,209 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  TrendingUp, AlertTriangle, ShieldCheck, Landmark, Shield, 
-  MapPin, Clock, ArrowUpRight, Search, Activity
+  Activity, ArrowRight, TrendingUp, AlertTriangle, 
+  MapPin, Clock, CheckCircle2, ChevronRight, Zap, RefreshCw
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useApp } from '../context/AppContext';
-
-// Hourly money movement mock timeseries
-const chartData = [
-  { hour: '00:00', amount: 45000 },
-  { hour: '02:00', amount: 28000 },
-  { hour: '04:00', amount: 15000 },
-  { hour: '06:00', amount: 39000 },
-  { hour: '08:00', amount: 120000 },
-  { hour: '10:00', amount: 245000 },
-  { hour: '12:00', amount: 180000 },
-  { hour: '14:00', amount: 210000 },
-  { hour: '16:00', amount: 290000 },
-  { hour: '18:00', amount: 340000 },
-  { hour: '20:00', amount: 220000 },
-  { hour: '22:00', amount: 110000 }
-];
+import { SVGNetworkGraph } from '../components/SVGNetworkGraph';
 
 export const Overview: React.FC = () => {
-  const { cases, alerts, setActiveCaseId } = useApp();
   const navigate = useNavigate();
+  const { cases, alerts, liveEvents, activeCaseId, setActiveCaseId, triggerSimulationStep, simState } = useApp();
 
-  // Dynamic KPI Metric states
-  const [metrics, setMetrics] = useState({
-    active_cases: 0,
-    high_risk_accounts: 0,
-    funds_under_risk_inr: 0,
-    active_alerts: 0,
-    predicted_cash_out_zones: 0,
-    cases_requiring_action: 0
-  });
+  const activeCase = cases.find(c => c.case_id === activeCaseId) || cases[0];
+  const totalFundsAtRisk = cases.reduce((sum, c) => sum + (c.amount || 0), 0);
+  const criticalAlerts = alerts.filter(a => a.severity === 'CRITICAL');
 
-  useEffect(() => {
-    const loadSummaryMetrics = async () => {
-      try {
-        const res = await fetch('/api/reports/summary');
-        if (res.ok) {
-          const data = await res.json();
-          setMetrics({
-            active_cases: data.metrics.active_cases,
-            high_risk_accounts: data.metrics.high_risk_accounts,
-            funds_under_risk_inr: data.metrics.funds_under_risk_inr,
-            active_alerts: data.metrics.active_alerts,
-            predicted_cash_out_zones: data.metrics.predicted_cash_out_zones,
-            cases_requiring_action: Math.round(data.metrics.active_cases * 0.28) || 6
-          });
-        }
-      } catch (err) {
-        console.error("Summary API failed:", err);
-      }
-    };
-    loadSummaryMetrics();
-  }, [cases, alerts]);
+  // Interactive Overview Network Topology: Victim -> A -> B -> C/D -> ATM
+  const overviewNodes = [
+    { id: '30291488102', label: 'Victim (SBI)', type: 'VICTIM' as const, riskScore: 5, x: 80, y: 180, holder_name: 'Ramesh Chandra' },
+    { id: 'MULE-A457', label: 'MULE-A457 (Canara)', type: 'MULE' as const, riskScore: 99, x: 230, y: 180, holder_name: 'Mohammad Farooq' },
+    { id: 'MULE-B821', label: 'MULE-B821 (PNB)', type: 'MULE' as const, riskScore: 78, x: 390, y: 90, holder_name: 'Karan Malhotra' },
+    { id: 'MULE-C912', label: 'MULE-C912 (Union)', type: 'MULE' as const, riskScore: 95, x: 390, y: 270, holder_name: 'Sunil Dutt Gowda' },
+    { id: 'ATM-Z03', label: 'ATM-Z03 (Dadar West)', type: 'ATM' as const, riskScore: 95, x: 550, y: 270, holder_name: 'ATM Cluster 03' },
+  ];
 
-  const handleCaseClick = (caseId: string) => {
-    setActiveCaseId(caseId);
-    navigate(`/cases/${caseId}`); // Open specific case workspace
-  };
-
-  // Priority case records list
-  const priorityCases = cases.slice(0, 5);
-  
-  // High-risk active alerts list
-  const activeAlertsList = alerts.filter(a => a.status === 'ACTIVE').slice(0, 4);
+  const overviewEdges = [
+    { id: 'e1', source: '30291488102', target: 'MULE-A457', amount: 100000, type: 'UPI', riskScore: 99 },
+    { id: 'e2', source: 'MULE-A457', target: 'MULE-B821', amount: 60000, type: 'IMPS', riskScore: 78 },
+    { id: 'e3', source: 'MULE-A457', target: 'MULE-C912', amount: 40000, type: 'IMPS', riskScore: 85 },
+    { id: 'e4', source: 'MULE-C912', target: 'ATM-Z03', amount: 40000, type: 'ATM_WITHDRAWAL', riskScore: 95 }
+  ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-12 animate-fade-in text-text-primary font-sans">
       
-      {/* 1. Header block */}
-      <div>
-        <h2 className="text-xl font-bold text-navy-950 font-sans">Financial Cybercrime Intelligence</h2>
-        <p className="text-xs text-slate-500 font-sans mt-0.5">
-          Monitor suspicious fund movement and identify potential cash-out risks.
-        </p>
-      </div>
-
-      {/* 2. Top Metric Cards (Dynamic Links) */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      {/* 1. LARGE EDITORIAL HERO SECTION */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center border-b border-border-subtle pb-10">
         
-        <div 
-          onClick={() => navigate('/cases')}
-          className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col justify-between cursor-pointer hover:border-navy-500 hover:shadow transition-all group"
-        >
-          <span className="text-[10px] text-slate-500 font-medium group-hover:text-navy-950 flex items-center justify-between">
-            Active Cases
-            <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover:text-navy-950" />
-          </span>
-          <div className="flex items-baseline justify-between mt-1.5">
-            <span className="text-xl font-bold text-navy-950 font-mono">{metrics.active_cases}</span>
-            <span className="text-[9px] font-mono text-slate-400 font-bold">Registry</span>
-          </div>
-        </div>
-
-        <div 
-          onClick={() => navigate('/risk')}
-          className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col justify-between cursor-pointer hover:border-red-500 hover:shadow transition-all group"
-        >
-          <span className="text-[10px] text-slate-500 font-medium group-hover:text-red-700 flex items-center justify-between">
-            High-Risk Accounts
-            <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover:text-red-700" />
-          </span>
-          <div className="flex items-baseline justify-between mt-1.5">
-            <span className="text-xl font-bold text-red-700 font-mono">{metrics.high_risk_accounts}</span>
-            <span className="text-[9px] font-mono text-red-500 font-bold">Mules</span>
-          </div>
-        </div>
-
-        <div 
-          onClick={() => navigate('/cases')}
-          className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col justify-between cursor-pointer hover:border-orange-500 hover:shadow transition-all group"
-        >
-          <span className="text-[10px] text-slate-500 font-medium group-hover:text-orange-700 flex items-center justify-between">
-            Funds Under Risk
-            <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover:text-orange-700" />
-          </span>
-          <div className="flex items-baseline justify-between mt-1.5">
-            <span className="text-base font-bold text-orange-700 font-mono">
-              ₹{(metrics.funds_under_risk_inr / 10000000).toFixed(2)} Cr
+        {/* Left Headline & Pitch (6 cols) */}
+        <div className="lg:col-span-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-text-muted">
+              PROACTIVE SURVEILLANCE GATEWAY
             </span>
-            <span className="text-[9px] font-mono text-orange-500 font-bold">Disputed</span>
+          </div>
+
+          <h1 className="text-3xl md:text-5xl font-light tracking-tight text-text-primary leading-[1.1]">
+            See where the money<br />
+            <span className="font-semibold text-white">is moving next.</span>
+          </h1>
+
+          <p className="text-sm text-text-secondary leading-relaxed max-w-xl">
+            Vigilant continuously traces suspicious fund movement, identifies abnormal account behaviour and estimates potential next movements and cash-out risk.
+          </p>
+
+          <div className="flex items-center gap-3 pt-2">
+            <button
+              onClick={triggerSimulationStep}
+              className="px-4 py-2 bg-steel-500 hover:bg-steel-600 text-white font-medium text-xs font-sans rounded transition-colors flex items-center gap-1.5"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>Generate Next Transaction</span>
+            </button>
+
+            <button
+              onClick={() => navigate('/cases')}
+              className="px-4 py-2 bg-canvas-900 hover:bg-canvas-850 border border-border-subtle text-text-secondary hover:text-text-primary text-xs font-medium rounded transition-colors"
+            >
+              Explore Cases ({cases.length})
+            </button>
           </div>
         </div>
 
-        <div 
-          onClick={() => navigate('/alerts')}
-          className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col justify-between cursor-pointer hover:border-red-500 hover:shadow transition-all group"
-        >
-          <span className="text-[10px] text-slate-500 font-medium group-hover:text-red-650 flex items-center justify-between">
-            Active Alerts
-            <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover:text-red-650" />
-          </span>
-          <div className="flex items-baseline justify-between mt-1.5">
-            <span className="text-xl font-bold text-red-600 font-mono">{metrics.active_alerts}</span>
-            <span className="text-[9px] font-mono text-red-500 font-bold">Active</span>
+        {/* Right Live Interactive Flow Graph (6 cols) */}
+        <div className="lg:col-span-6 bg-canvas-900 border border-border-subtle rounded p-3 space-y-2">
+          <div className="flex items-center justify-between border-b border-border-subtle pb-2 px-1">
+            <span className="text-xs font-medium text-text-primary">Live Fund Layering Topology</span>
+            <span className="text-[9.5px] font-mono text-text-muted">Case CF-2026-00421</span>
+          </div>
+
+          <div className="h-[260px] w-full">
+            <SVGNetworkGraph
+              nodes={overviewNodes}
+              edges={overviewEdges}
+              onSelectNode={(id) => {
+                setActiveCaseId('CF-2026-00421');
+                navigate('/network');
+              }}
+            />
+          </div>
+
+          <div className="flex justify-between items-center text-[10px] font-mono text-text-muted px-1">
+            <span>Flow: <strong>Victim</strong> &rarr; <strong>A457</strong> &rarr; <strong>B821/C912</strong> &rarr; <strong>ATM-Z03</strong></span>
+            <span className="text-steel-400">100% Traceable</span>
           </div>
         </div>
 
-        <div 
-          onClick={() => navigate('/cashout')}
-          className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col justify-between cursor-pointer hover:border-navy-500 hover:shadow transition-all group"
-        >
-          <span className="text-[10px] text-slate-500 font-medium group-hover:text-navy-950 flex items-center justify-between">
-            Cash-Out Clusters
-            <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover:text-navy-950" />
-          </span>
-          <div className="flex items-baseline justify-between mt-1.5">
-            <span className="text-xl font-bold text-navy-600 font-mono">{metrics.predicted_cash_out_zones}</span>
-            <span className="text-[9px] font-mono text-slate-400 font-bold">Zones</span>
-          </div>
-        </div>
+      </section>
 
-        <div 
-          onClick={() => navigate('/cases')}
-          className="bg-white p-3 rounded border border-slate-200 shadow-sm flex flex-col justify-between cursor-pointer hover:border-amber-500 hover:shadow transition-all group"
-        >
-          <span className="text-[10px] text-slate-500 font-medium group-hover:text-amber-800 flex items-center justify-between">
-            Action Needed
-            <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover:text-amber-800" />
-          </span>
-          <div className="flex items-baseline justify-between mt-1.5">
-            <span className="text-xl font-bold text-amber-700 font-mono">{metrics.cases_requiring_action}</span>
-            <span className="text-[9px] font-mono text-amber-500 font-bold">Critical</span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* 3. Hourly Money Velocity Timeseries Area Chart */}
-      <div className="bg-white p-4 rounded border border-slate-200 shadow-sm text-xs">
-        <div className="flex justify-between items-center mb-3">
-          <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Hourly Fund Routing Velocity (₹ INR)</span>
-          <div className="flex items-center gap-1 text-[10px] text-slate-400 font-semibold uppercase">
-            <Activity className="w-3.5 h-3.5 text-navy-600" />
-            Live Surveillance feed
-          </div>
-        </div>
+      {/* 2. RESTRAINED TYPOGRAPHIC INTELLIGENCE SUMMARY (NO TINY CARDS) */}
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-6 py-2 border-b border-border-subtle pb-10 font-mono">
         
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f3f5" />
-              <XAxis dataKey="hour" stroke="#868e96" fontSize={10} />
-              <YAxis 
-                stroke="#868e96" 
-                fontSize={10} 
-                tickFormatter={(tick) => `₹${(tick / 1000).toFixed(0)}k`} 
-              />
-              <Tooltip formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Amount']} />
-              <Line type="monotone" dataKey="amount" stroke="#1d3557" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="space-y-1">
+          <span className="text-3xl md:text-4xl font-semibold text-text-primary block">
+            128
+          </span>
+          <span className="text-[10px] text-text-muted uppercase tracking-wider block">
+            ACTIVE CASES
+          </span>
         </div>
-      </div>
 
-      {/* 4. Priority Cases Grid list & Active Alerts lists */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-xs">
+        <div className="space-y-1">
+          <span className="text-3xl md:text-4xl font-semibold text-text-primary block">
+            47
+          </span>
+          <span className="text-[10px] text-text-muted uppercase tracking-wider block">
+            HIGH-RISK ACCOUNTS
+          </span>
+        </div>
+
+        <div className="space-y-1">
+          <span className="text-3xl md:text-4xl font-semibold text-steel-400 block">
+            ₹2.84 Cr
+          </span>
+          <span className="text-[10px] text-text-muted uppercase tracking-wider block">
+            FUNDS UNDER RISK
+          </span>
+        </div>
+
+        <div className="space-y-1">
+          <span className="text-3xl md:text-4xl font-semibold text-threat-critical block">
+            19
+          </span>
+          <span className="text-[10px] text-text-muted uppercase tracking-wider block">
+            ACTIVE ALERTS
+          </span>
+        </div>
+
+      </section>
+
+      {/* 3. OPERATIONAL TRIAGE & TELEMETRY */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        <div className="lg:col-span-8 bg-white border border-slate-200 rounded shadow-sm overflow-hidden flex flex-col justify-between">
-          <div>
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <span className="font-bold text-navy-950 uppercase text-[10px] tracking-wider">Priority Incident Registry</span>
-              <button 
-                onClick={() => navigate('/cases')}
-                className="text-[10px] text-navy-900 font-extrabold hover:underline"
-              >
-                View Case Registry &rarr;
-              </button>
+        {/* Left (5 cols): Priority Intelligence Action */}
+        <div className="lg:col-span-5 bg-canvas-900 border border-border-subtle rounded p-5 space-y-3 flex flex-col justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-text-muted">PRIORITY INTELLIGENCE</span>
+              <span className="px-1.5 py-0.2 rounded text-[8.5px] font-mono font-semibold bg-threat-critical/15 text-threat-critical border border-threat-critical/30">
+                CRITICAL RISK 91%
+              </span>
             </div>
-            
-            <div className="divide-y divide-slate-100">
-              {priorityCases.map((c) => (
-                <div 
-                  key={c.case_id}
-                  onClick={() => handleCaseClick(c.case_id)}
-                  className="p-3.5 flex justify-between items-center hover:bg-slate-50 cursor-pointer transition-colors"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-navy-900">{c.case_id}</span>
-                      <span className="text-[10px] text-slate-500">{c.fraud_type}</span>
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">Assigned: {c.assigned_officer}</div>
-                  </div>
-                  
-                  <div className="text-right">
-                    <div className="font-bold text-slate-800">₹{c.amount.toLocaleString('en-IN')}</div>
-                    <span className={`px-1.5 py-0.25 text-[8.5px] rounded font-bold uppercase font-mono ${
-                      c.risk_score >= 80 ? 'bg-red-50 text-red-700' : 'bg-orange-50 text-orange-700'
-                    }`}>
-                      Risk: {c.risk_score}%
-                    </span>
-                  </div>
+
+            <div>
+              <span className="font-mono font-semibold text-sm text-text-primary block">Case CF-2026-00421</span>
+              <span className="text-xs text-text-secondary">UPI Social Engineering Fraud</span>
+            </div>
+
+            <p className="text-xs text-text-secondary leading-relaxed bg-canvas-950 p-3 rounded border border-border-subtle">
+              "<strong>₹40,000</strong> may reach a cash-out stage at <strong>ATM Cluster 03 (Dadar West)</strong> within the next <strong>20–40 minutes</strong>."
+            </p>
+          </div>
+
+          <button
+            onClick={() => {
+              setActiveCaseId('CF-2026-00421');
+              navigate('/cases');
+            }}
+            className="w-full py-2.5 bg-steel-500 hover:bg-steel-600 text-white font-medium text-xs rounded transition-colors flex items-center justify-center gap-1.5"
+          >
+            <span>Open Case Workspace</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Right (7 cols): Real-Time Telemetry Event Stream */}
+        <div className="lg:col-span-7 bg-canvas-900 border border-border-subtle rounded p-5 space-y-3 flex flex-col justify-between">
+          <div className="flex items-center justify-between border-b border-border-subtle pb-2">
+            <span className="text-xs font-semibold text-text-primary flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5 text-steel-400 stroke-[1.7]" />
+              Real-Time Event Console
+            </span>
+            <span className="text-[9px] font-mono text-emerald-400">STREAMING ACTIVE</span>
+          </div>
+
+          <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 text-xs font-mono">
+            {liveEvents.slice(0, 6).map((evt, idx) => (
+              <div key={idx} className="p-2 bg-canvas-950 border border-border-subtle rounded space-y-1">
+                <div className="flex items-center justify-between text-[9.5px]">
+                  <span className="text-steel-400 font-medium">{evt.event_type}</span>
+                  <span className="text-text-muted">{evt.timestamp}</span>
                 </div>
-              ))}
-            </div>
+                <p className="text-[11px] text-text-secondary font-sans leading-snug">
+                  {evt.description}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded shadow-sm overflow-hidden flex flex-col justify-between">
-          <div>
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <span className="font-bold text-navy-950 uppercase text-[10px] tracking-wider">Active Alarms Queue</span>
-              <button 
-                onClick={() => navigate('/alerts')}
-                className="text-[10px] text-navy-900 font-extrabold hover:underline"
-              >
-                Manage &rarr;
-              </button>
-            </div>
-            
-            <div className="divide-y divide-slate-100">
-              {activeAlertsList.length > 0 ? (
-                activeAlertsList.map((alert) => (
-                  <div key={alert.alert_id} className="p-3 flex flex-col gap-1 hover:bg-slate-50">
-                    <div className="flex justify-between items-center">
-                      <span className="font-mono font-bold text-slate-700">{alert.alert_id}</span>
-                      <span className={`px-1.5 py-0.25 rounded text-[8.5px] font-bold ${
-                        alert.severity === 'CRITICAL' ? 'bg-red-50 text-red-750' : 'bg-amber-50 text-amber-750'
-                      }`}>
-                        {alert.severity}
-                      </span>
-                    </div>
-                    <div className="font-semibold text-slate-800">{alert.title}</div>
-                    <p className="text-[10px] text-slate-500 line-clamp-1">{alert.description}</p>
-                  </div>
-                ))
-              ) : (
-                <div className="p-6 text-center text-slate-400">
-                  No active critical alarms.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-      </div>
+      </section>
 
     </div>
   );
 };
+
 export default Overview;
