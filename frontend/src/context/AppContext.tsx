@@ -37,6 +37,7 @@ export interface LiveEvent {
     step?: number;
     tx_id?: string;
     title?: string;
+    tx_hash?: string;
   };
 }
 
@@ -73,6 +74,10 @@ export interface EvidenceItem {
   file_type: string;
   file_size?: string;
   hash_checksum?: string;
+  ipfs_cid?: string;
+  on_chain_tx_hash?: string;
+  block_number?: number;
+  smart_contract_address?: string;
 }
 
 export interface WatchlistItem {
@@ -89,6 +94,11 @@ export interface WatchlistItem {
 
 export interface AuditLogItem {
   log_id: string;
+  block_index?: number;
+  previous_hash?: string;
+  block_hash?: string;
+  merkle_root?: string;
+  tx_hash?: string;
   officer: string;
   action: string;
   case_id?: string;
@@ -142,6 +152,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [accounts, setAccounts] = useState<any[]>(MOCK_CASES_DATA[0].accounts);
   const [predictions, setPredictions] = useState<any[]>(MOCK_CASES_DATA[0].predictions);
   const [timeline, setTimeline] = useState<any[]>(MOCK_CASES_DATA[0].timeline);
+  
   const [evidence, setEvidence] = useState<EvidenceItem[]>([
     {
       evidence_id: "EV-001",
@@ -150,10 +161,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       description: "Extract showing immediate debit of Rs. 1,00,000 via fraudulent UPI QR link.",
       file_type: "PDF",
       file_size: "1.4 MB",
-      hash_checksum: "SHA256:8f43a9182bc4e7d99a01",
+      hash_checksum: "SHA256:8F43A9182BC4E7D99A0129481920481928401928",
+      ipfs_cid: "bafybeic8f43a9182bc4e7d99a01vigilant",
+      on_chain_tx_hash: "0x7F91B994A2D81C10291480D923E2804A9184B022",
+      block_number: 1982412,
+      smart_contract_address: "0x7F91B994A2D81C10291480D923E2804A9184B022",
       timestamp: new Date().toISOString()
     }
   ]);
+
   const [notes, setNotes] = useState<Note[]>([
     {
       note_id: "N-101",
@@ -164,6 +180,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timestamp: new Date().toISOString()
     }
   ]);
+
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([
     {
       account_number: "MULE-A457",
@@ -184,17 +201,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       added_by: "Officer Rajesh K.",
       added_at: new Date().toISOString(),
       active: true
+    },
+    {
+      account_number: "0x71C9284F91B8",
+      holder_name: "Tether TRC-20 Wallet",
+      bank_name: "Polygon/Tron Blockchain",
+      reason: "Crypto P2P un-hosted off-ramp wallet",
+      risk_level: "CRITICAL",
+      added_by: "Officer Rajesh K.",
+      added_at: new Date().toISOString(),
+      active: true
     }
   ]);
+
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([
     {
-      log_id: "LOG-001",
+      log_id: "AUD-BLK0000-GENESIS",
+      block_index: 0,
+      previous_hash: "0".repeat(64),
+      block_hash: "8f43a9182bc4e7d99a0129481920481928401928401928401928401928401928",
+      merkle_root: "7c9b204819204819204819204819204819204819204819204819204819204819",
+      tx_hash: "0x8f43a9182bc4e7d99a0129481920481928401928",
+      officer: "System Consensus Node",
+      action: "GENESIS_BLOCK_INITIALIZED",
+      case_id: undefined,
+      details: "National Blockchain Forensic Inter-Agency Ledger Genesis block created.",
+      timestamp: new Date(Date.now() - 3600000).toISOString(),
+      ip_address: "10.42.0.1 (CORE_GATEWAY)"
+    },
+    {
+      log_id: "AUD-BLK0001-A102",
+      block_index: 1,
+      previous_hash: "8f43a9182bc4e7d99a0129481920481928401928401928401928401928401928",
+      block_hash: "3d9a184f91b82048102948102948102948102948102948102948102948102948",
+      merkle_root: "5e1a204819204819204819204819204819204819204819204819204819204819",
+      tx_hash: "0x3d9a184f91b82048102948102948102948102948",
       officer: "Officer Rajesh K.",
       action: "SESSION_INITIALIZED",
       case_id: "CF-2026-00421",
-      details: "Authenticated investigator workstation session opened.",
-      timestamp: new Date().toISOString(),
-      ip_address: "127.0.0.1"
+      details: "Authenticated investigator workstation session opened via VPN.",
+      timestamp: new Date(Date.now() - 1800000).toISOString(),
+      ip_address: "10.42.0.8 (LE_VPN)"
+    },
+    {
+      log_id: "AUD-BLK0002-B304",
+      block_index: 2,
+      previous_hash: "3d9a184f91b82048102948102948102948102948102948102948102948102948",
+      block_hash: "9b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c",
+      merkle_root: "2f4b204819204819204819204819204819204819204819204819204819204819",
+      tx_hash: "0x9b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c",
+      officer: "Officer Rajesh K.",
+      action: "EVIDENCE_ANCHORED_ON_CHAIN",
+      case_id: "CF-2026-00421",
+      details: "Anchored FIR Intake Statement (IPFS: bafybeic8f43a9182bc4e7d99a01) to Polygon testnet.",
+      timestamp: new Date(Date.now() - 900000).toISOString(),
+      ip_address: "10.42.0.8 (LE_VPN)"
     }
   ]);
   
@@ -435,6 +496,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (res.ok) {
         const data = await res.json();
         setNotes(prev => [data, ...prev]);
+        fetchAuditLogs();
       } else {
         setNotes(prev => [newNoteObj, ...prev]);
       }
@@ -452,16 +514,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast("Note Removed", "Investigation note removed from dossier.", "info");
   };
 
-  // Evidence Actions
+  // Evidence Actions (with Blockchain Anchoring)
   const addEvidence = async (title: string, description: string, fileType: string = "PDF") => {
+    const fakeHash = Math.random().toString(16).substring(2, 10).toUpperCase();
     const newEvObj: EvidenceItem = {
       evidence_id: `EV-${Date.now()}`,
       case_id: activeCaseId,
       title,
       description,
       file_type: fileType,
-      file_size: "1.2 MB",
-      hash_checksum: `SHA256:${Math.random().toString(16).substring(2, 10)}`,
+      file_size: "1.4 MB",
+      hash_checksum: `SHA256:${fakeHash}182BC4E7D99A01`,
+      ipfs_cid: `bafybeic${fakeHash.toLowerCase()}vigilant`,
+      on_chain_tx_hash: `0x${fakeHash.toLowerCase()}b994a2d81c10291480d923e2804a9184b022`,
+      block_number: 1982400 + Math.floor(Math.random() * 500),
+      smart_contract_address: "0x7F91B994A2D81C10291480D923E2804A9184B022",
       timestamp: new Date().toISOString()
     };
     try {
@@ -473,13 +540,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (res.ok) {
         const data = await res.json();
         setEvidence(prev => [data, ...prev]);
+        fetchAuditLogs();
       } else {
         setEvidence(prev => [newEvObj, ...prev]);
       }
     } catch (err) {
       setEvidence(prev => [newEvObj, ...prev]);
     }
-    addToast("Evidence Added", `Attached ${title} to case evidence locker.`, "success");
+    addToast("Evidence Anchored On-Chain", `Attached ${title} with Section 65B SHA-256 IPFS signature.`, "success");
   };
 
   const deleteEvidence = async (evidenceId: string) => {
@@ -490,10 +558,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast("Evidence Removed", "Removed item from evidence locker.", "info");
   };
 
-  // Intervention / Freeze Action
+  // Intervention / Freeze Action (Multi-Sig Smart Contract)
   const createIntervention = async (accountNumber: string, targetEntity: string, actionType: string, reason: string) => {
     try {
-      await fetch(`/api/cases/${activeCaseId}/intervene`, {
+      const res = await fetch(`/api/cases/${activeCaseId}/intervene`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -503,9 +571,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           reason: reason
         })
       });
+      if (res.ok) {
+        fetchAuditLogs();
+      }
     } catch (err) {}
 
-    addToast("Proactive Freeze Activated", `Cryptographic hold executed on account ${accountNumber}.`, "success");
+    addToast("Smart-Contract Freeze Executed", `Multi-Signature consensus lock executed on account ${accountNumber} (Tx: 0x7F91B...).`, "success");
     setCases(prev => prev.map(c => c.case_id === activeCaseId ? { ...c, current_status: "RESOLVED" } : c));
     if (currentCase) {
       setCurrentCase({
@@ -595,14 +666,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Audit Logging
   const logAudit = async (action: string, details: string, caseId?: string) => {
+    const nextIdx = auditLogs.length;
     const newLog: AuditLogItem = {
-      log_id: `LOG-${Date.now()}`,
+      log_id: `AUD-BLK${nextIdx.toString().padStart(4, '0')}-${Date.now().toString(16).substring(4)}`,
+      block_index: nextIdx,
+      previous_hash: auditLogs[0]?.block_hash || "8f43a9182bc4e7d99a0129481920481928401928401928401928401928401928",
+      block_hash: "3d9a184f91b82048102948102948102948102948102948102948102948102948",
+      merkle_root: "7c9b204819204819204819204819204819204819204819204819204819204819",
+      tx_hash: `0x${Date.now().toString(16)}`,
       officer: "Officer Rajesh K.",
       action,
       case_id: caseId || activeCaseId,
       details,
       timestamp: new Date().toISOString(),
-      ip_address: "127.0.0.1"
+      ip_address: "10.42.0.8 (LE_VPN)"
     };
     setAuditLogs(prev => [newLog, ...prev]);
   };

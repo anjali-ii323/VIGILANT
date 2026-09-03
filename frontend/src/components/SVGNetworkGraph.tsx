@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { ZoomIn, ZoomOut, RotateCcw, Landmark, MapPin, Store, User, ShieldAlert } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Landmark, MapPin, Store, User, ShieldAlert, Coins, Key } from 'lucide-react';
 
 export interface GraphNode {
   id: string;
   label: string;
-  type: 'VICTIM' | 'MULE' | 'SUSPICIOUS' | 'SAFE' | 'ATM' | 'MERCHANT' | 'BANK_ACCOUNT';
+  type: 'VICTIM' | 'MULE' | 'SUSPICIOUS' | 'SAFE' | 'ATM' | 'MERCHANT' | 'BANK_ACCOUNT' | 'CRYPTO_WALLET';
   riskScore: number;
   amount?: number;
   bank?: string;
@@ -113,6 +113,10 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
           <span className="w-2 h-2 rounded-full bg-steel-400" />
           <span>ATM Outlet</span>
         </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-cyan-400" />
+          <span>Crypto Wallet</span>
+        </div>
       </div>
 
       {/* SVG Canvas */}
@@ -154,6 +158,19 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
           >
             <path d="M 0 1.5 L 7 5 L 0 8.5 z" fill="#DC2626" />
           </marker>
+
+          {/* Cyan Crypto Arrow Marker */}
+          <marker
+            id="arrow-crypto"
+            viewBox="0 0 10 10"
+            refX="22"
+            refY="5"
+            markerWidth="5"
+            markerHeight="5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1.5 L 7 5 L 0 8.5 z" fill="#38BDF8" />
+          </marker>
         </defs>
 
         <rect id="grid-bg" width="100%" height="100%" fill="url(#graph-grid)" />
@@ -169,10 +186,11 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
 
             const isSelected = selectedEdgeId === edge.id;
             const isHighRisk = edge.riskScore >= 75;
+            const isCrypto = edge.type.includes('USDT') || edge.type.includes('P2P') || targetNode.type === 'CRYPTO_WALLET';
             
-            const strokeColor = isSelected ? '#93C5FD' : isHighRisk ? '#DC2626' : '#3B82F6';
+            const strokeColor = isSelected ? '#93C5FD' : isCrypto ? '#38BDF8' : isHighRisk ? '#DC2626' : '#3B82F6';
             const strokeWidth = isSelected ? 2.5 : 1.2;
-            const markerId = isHighRisk ? 'url(#arrow-threat)' : 'url(#arrow-steel)';
+            const markerId = isCrypto ? 'url(#arrow-crypto)' : isHighRisk ? 'url(#arrow-threat)' : 'url(#arrow-steel)';
 
             const midX = (sourceNode.x + targetNode.x) / 2;
             const midY = (sourceNode.y + targetNode.y) / 2;
@@ -195,7 +213,7 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
                   stroke={strokeColor}
                   strokeWidth={strokeWidth}
                   markerEnd={markerId}
-                  strokeDasharray={edge.type === 'ATM_WITHDRAWAL' ? '4 4' : 'none'}
+                  strokeDasharray={isCrypto ? '3 3' : edge.type === 'ATM_WITHDRAWAL' ? '4 4' : 'none'}
                   className="transition-colors group-hover:stroke-steel-300"
                 />
 
@@ -219,7 +237,7 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
                     textAnchor="middle"
                     dominantBaseline="middle"
                   >
-                    ₹{edge.amount >= 100000 ? `${(edge.amount/100000).toFixed(1)}L` : edge.amount.toLocaleString('en-IN')}
+                    {isCrypto ? `$${(edge.amount / 83).toFixed(0)} USDT` : edge.amount >= 100000 ? `₹${(edge.amount/100000).toFixed(1)}L` : `₹${edge.amount.toLocaleString('en-IN')}`}
                   </text>
                 </g>
               </g>
@@ -233,6 +251,7 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
             const isATM = node.type === 'ATM';
             const isMule = node.type === 'MULE';
             const isMerchant = node.type === 'MERCHANT';
+            const isCrypto = node.type === 'CRYPTO_WALLET';
 
             let badgeBorder = isSelected ? '#93C5FD' : 'rgba(255, 255, 255, 0.12)';
             let iconColor = '#9EA4AE';
@@ -243,6 +262,9 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
             } else if (isATM) {
               badgeBorder = isSelected ? '#93C5FD' : '#60A5FA';
               iconColor = '#60A5FA';
+            } else if (isCrypto) {
+              badgeBorder = isSelected ? '#93C5FD' : '#38BDF8';
+              iconColor = '#38BDF8';
             } else if (isMule) {
               badgeBorder = isSelected ? '#93C5FD' : '#DC2626';
               iconColor = '#DC2626';
@@ -274,16 +296,17 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
                   {isVictim && <User width="14" height="14" color={iconColor} strokeWidth="1.8" />}
                   {isMule && <ShieldAlert width="14" height="14" color={iconColor} strokeWidth="1.8" />}
                   {isATM && <MapPin width="14" height="14" color={iconColor} strokeWidth="1.8" />}
+                  {isCrypto && <Coins width="14" height="14" color={iconColor} strokeWidth="1.8" />}
                   {isMerchant && <Store width="14" height="14" color={iconColor} strokeWidth="1.8" />}
-                  {!isVictim && !isMule && !isATM && !isMerchant && (
+                  {!isVictim && !isMule && !isATM && !isMerchant && !isCrypto && (
                     <Landmark width="14" height="14" color={iconColor} strokeWidth="1.8" />
                   )}
                 </g>
 
-                {/* Risk Score Pill on Mules */}
-                {isMule && (
+                {/* Risk Score Pill */}
+                {(isMule || isCrypto) && (
                   <g transform="translate(12, -12)">
-                    <circle cx="0" cy="0" r="7" fill="#DC2626" />
+                    <circle cx="0" cy="0" r="7" fill={isCrypto ? "#0284C7" : "#DC2626"} />
                     <text
                       fontSize="7"
                       fontFamily="JetBrains Mono, monospace"
@@ -313,11 +336,11 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
                     fontSize="8.5"
                     fontFamily="JetBrains Mono, monospace"
                     fontWeight="500"
-                    fill={isSelected ? "#93C5FD" : "#F2F3F5"}
+                    fill={isSelected ? "#93C5FD" : isCrypto ? "#38BDF8" : "#F2F3F5"}
                     textAnchor="middle"
                     dominantBaseline="middle"
                   >
-                    {node.id}
+                    {node.id.length > 14 ? `${node.id.substring(0, 12)}...` : node.id}
                   </text>
                 </g>
 

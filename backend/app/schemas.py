@@ -1,15 +1,27 @@
 from pydantic import BaseModel
-from datetime import datetime
 from typing import List, Optional, Dict, Any
+from datetime import datetime
 
-class UserBase(BaseModel):
+class UserSchema(BaseModel):
+    id: int
     username: str
     name: str
     role: str
     system_access: str
 
-class UserSchema(UserBase):
-    id: int
+    class Config:
+        from_attributes = True
+
+class VictimBase(BaseModel):
+    name: str
+    account_number: str
+    bank_name: str
+    city: Optional[str] = "Mumbai, Maharashtra"
+    phone: Optional[str] = None
+
+class VictimSchema(VictimBase):
+    victim_id: str
+    report_timestamp: datetime
 
     class Config:
         from_attributes = True
@@ -23,25 +35,13 @@ class CaseBase(BaseModel):
     risk_score: float
     assigned_officer: str
     last_activity: str
-    priority: Optional[str] = "HIGH"
+    priority: Optional[str] = "CRITICAL"
+
+class CaseCreate(CaseBase):
+    pass
 
 class CaseSchema(CaseBase):
     created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class VictimReferenceBase(BaseModel):
-    victim_id: str
-    name: str
-    phone: str
-    bank_name: str
-    account_number: str
-    disputed_amount: float
-    city: Optional[str] = "Mumbai"
-
-class VictimReferenceSchema(VictimReferenceBase):
-    report_timestamp: datetime
 
     class Config:
         from_attributes = True
@@ -51,17 +51,17 @@ class AccountBase(BaseModel):
     holder_name: str
     bank_name: str
     ifsc_code: str
-    phone_number: str
+    account_age_days: int
+    current_balance: float
     risk_score: float
     classification: str
     risk_factors: Dict[str, Any]
     is_mule: bool
-    is_watchlist: Optional[bool] = False
-    is_frozen: Optional[bool] = False
-    linked_case_id: Optional[str] = None
+    is_watchlist: bool
+    is_frozen: bool
 
 class AccountSchema(AccountBase):
-    created_at: datetime
+    linked_case_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -74,11 +74,11 @@ class TransactionBase(BaseModel):
     transaction_type: str
     risk_score: float
     is_simulated: bool
-    status: Optional[str] = "COMPLETED"
-    linked_case_id: Optional[str] = None
+    status: str
 
 class TransactionSchema(TransactionBase):
     timestamp: datetime
+    linked_case_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -156,18 +156,21 @@ class EvidenceSchema(BaseModel):
     file_type: str
     file_size: Optional[str] = "1.2 MB"
     hash_checksum: Optional[str] = None
+    ipfs_cid: Optional[str] = None
+    on_chain_tx_hash: Optional[str] = None
+    block_number: Optional[int] = None
+    smart_contract_address: Optional[str] = None
 
     class Config:
         from_attributes = True
 
-class InterventionRequestCreate(BaseModel):
+class InterventionCreate(BaseModel):
     account_number: str
     target_entity: str
     action_type: str # FREEZE_ACCOUNT, REVERSE_TRANSACTION, DISPATCH_PATROL, SURVEILLANCE_FLAG
     reason: str
-    requested_by: Optional[str] = "Officer Rajesh K. (Cyber Division)"
 
-class InterventionRequestSchema(BaseModel):
+class InterventionSchema(BaseModel):
     request_id: str
     case_id: str
     account_number: str
@@ -177,20 +180,22 @@ class InterventionRequestSchema(BaseModel):
     requested_by: str
     reason: str
     created_at: datetime
-    response_data: Dict[str, Any] = {}
+    response_data: Optional[Dict[str, Any]] = None
+    smart_contract_tx: Optional[str] = None
+    gas_used: Optional[int] = None
+    multi_sig_quorum: Optional[List[str]] = None
 
     class Config:
         from_attributes = True
 
-class WatchlistAccountCreate(BaseModel):
+class WatchlistCreate(BaseModel):
     account_number: str
     holder_name: Optional[str] = None
     bank_name: Optional[str] = None
     reason: str
-    added_by: Optional[str] = "Officer Rajesh K."
     risk_level: Optional[str] = "HIGH"
 
-class WatchlistAccountSchema(BaseModel):
+class WatchlistSchema(BaseModel):
     id: int
     account_number: str
     holder_name: Optional[str] = None
@@ -206,12 +211,17 @@ class WatchlistAccountSchema(BaseModel):
 
 class AuditLogCreate(BaseModel):
     action: str
-    case_id: Optional[str] = None
     details: str
+    case_id: Optional[str] = None
     officer: Optional[str] = "Officer Rajesh K."
 
 class AuditLogSchema(BaseModel):
     log_id: str
+    block_index: Optional[int] = 0
+    previous_hash: Optional[str] = None
+    block_hash: Optional[str] = None
+    merkle_root: Optional[str] = None
+    tx_hash: Optional[str] = None
     officer: str
     action: str
     case_id: Optional[str] = None
@@ -222,30 +232,31 @@ class AuditLogSchema(BaseModel):
     class Config:
         from_attributes = True
 
-# Composite structures
+class BlockchainVerifySchema(BaseModel):
+    is_valid: bool
+    block_count: int
+    genesis_hash: Optional[str] = None
+    latest_block_hash: Optional[str] = None
+    latest_block_index: Optional[int] = None
+    status: str
+
 class CaseDetailSchema(BaseModel):
     case: CaseSchema
-    victim: Optional[VictimReferenceSchema] = None
-    alerts: List[AlertSchema] = []
-    notes: List[InvestigationNoteSchema] = []
-    evidence: List[EvidenceSchema] = []
-    predictions: List[PredictionSchema] = []
-    interventions: List[InterventionRequestSchema] = []
-    
-    class Config:
-        from_attributes = True
+    victim: Optional[VictimSchema]
+    transaction_count: int
+    mule_count: int
 
 class GraphNodeSchema(BaseModel):
     id: str
     label: str
-    type: str # VICTIM, MULE, MERCHANT, ATM, BANK_ACCOUNT
+    type: str
     riskScore: float
-    x: float
-    y: float
+    amount: Optional[float] = None
+    bank: Optional[str] = None
     holder_name: Optional[str] = None
     bank_name: Optional[str] = None
-    classification: Optional[str] = None
-    is_mule: Optional[bool] = False
+    x: float
+    y: float
 
 class GraphEdgeSchema(BaseModel):
     id: str
@@ -277,7 +288,7 @@ class LiveStreamEventSchema(BaseModel):
     amount: float
     description: str
     risk_level: str
-    event_type: str # TRANSACTION, ALERT, RISK_UPDATE, PREDICTION
+    event_type: str
     meta: Dict[str, Any]
 
 class RiskAssessmentSchema(BaseModel):
@@ -322,7 +333,7 @@ class InvestigationEventSchema(SimulationEventSchema):
 
 class SearchResultSchema(BaseModel):
     id: str
-    type: str # CASE, ACCOUNT, TRANSACTION, ALERT
+    type: str
     title: str
     subtitle: str
 

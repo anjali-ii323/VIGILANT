@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Search, Eye, ShieldAlert, CheckCircle2, ChevronRight, X, 
   MapPin, Landmark, ArrowRight, Share2, Filter, Info,
-  TrendingUp, Activity, AlertTriangle
+  TrendingUp, Activity, AlertTriangle, Coins
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { SVGNetworkGraph } from '../components/SVGNetworkGraph';
@@ -94,7 +94,7 @@ export const TransactionNetwork: React.FC = () => {
     const list = Array.from(uniqueIds);
     let nodesList = list.map((nodeId) => {
       const acc = caseAccounts.find(a => a.account_number === nodeId);
-      let type: 'VICTIM' | 'MULE' | 'ATM' | 'BANK_ACCOUNT' | 'MERCHANT' = 'BANK_ACCOUNT';
+      let type: 'VICTIM' | 'MULE' | 'ATM' | 'BANK_ACCOUNT' | 'MERCHANT' | 'CRYPTO_WALLET' = 'BANK_ACCOUNT';
       let riskScore = 5.0;
       let holderName = nodeId;
       let bankName = "Banking Node";
@@ -105,12 +105,18 @@ export const TransactionNetwork: React.FC = () => {
         bankName = acc.bank_name;
         if (acc.is_mule) type = 'MULE';
         else if (acc.classification === 'MERCHANT') type = 'MERCHANT';
+        else if (acc.classification === 'CRYPTO_WALLET') type = 'CRYPTO_WALLET';
       }
 
       if (nodeId.startsWith('ATM')) {
         type = 'ATM';
         riskScore = 95.0;
         holderName = "ATM Terminal";
+      } else if (nodeId.startsWith('0x') || nodeId.startsWith('TRX') || nodeId.startsWith('USDT') || (acc && acc.classification === 'CRYPTO_WALLET')) {
+        type = 'CRYPTO_WALLET';
+        riskScore = 96.0;
+        holderName = "Crypto Wallet (TRC-20)";
+        bankName = "Blockchain Ledger";
       } else if (nodeId.startsWith('30') || nodeId.startsWith('VIC') || nodeId.startsWith('50') || nodeId.startsWith('60') || nodeId.startsWith('70') || nodeId.startsWith('80') || nodeId.startsWith('90')) {
         type = 'VICTIM';
         riskScore = 5.0;
@@ -122,8 +128,10 @@ export const TransactionNetwork: React.FC = () => {
         x = 80; y = 180;
       } else if (type === 'ATM') {
         x = 580; y = 180;
-      } else if (type === 'MERCHANT') {
+      } else if (type === 'CRYPTO_WALLET') {
         x = 580; y = 80;
+      } else if (type === 'MERCHANT') {
+        x = 580; y = 120;
       } else if (type === 'MULE') {
         const muleIdx = list.indexOf(nodeId);
         x = 220 + (muleIdx > 0 ? (muleIdx - 1) * 150 : 0);
@@ -213,11 +221,11 @@ export const TransactionNetwork: React.FC = () => {
 
     const foundAcc = caseAccounts.find(a => a.account_number === nodeId) || {
       account_number: nodeId,
-      holder_name: nodeId.startsWith('ATM') ? 'ATM Terminal' : 'Entity Under Surveillance',
-      bank_name: 'Banking Gateway',
-      classification: nodeId.startsWith('MULE') ? 'HIGH RISK' : 'BENIGN',
+      holder_name: nodeId.startsWith('ATM') ? 'ATM Terminal' : nodeId.startsWith('0x') ? 'Tether TRC-20 Wallet' : 'Entity Under Surveillance',
+      bank_name: nodeId.startsWith('0x') ? 'Blockchain Ledger' : 'Banking Gateway',
+      classification: nodeId.startsWith('MULE') ? 'HIGH RISK' : nodeId.startsWith('0x') ? 'CRYPTO_WALLET' : 'BENIGN',
       is_mule: nodeId.startsWith('MULE'),
-      risk_score: nodeId.startsWith('MULE') ? 92 : 5
+      risk_score: nodeId.startsWith('MULE') || nodeId.startsWith('0x') ? 95 : 5
     };
 
     setInspectedAccount(foundAcc);
@@ -291,7 +299,7 @@ export const TransactionNetwork: React.FC = () => {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b border-border-subtle pb-3 gap-3">
           <div>
             <span className="text-[9.5px] font-mono uppercase tracking-[0.15em] text-text-muted block">
-              MULTI-HOP RELATIONSHIP TOPOLOGY
+              MULTI-HOP RELATIONSHIP & BLOCKCHAIN TOPOLOGY
             </span>
             <h2 className="text-base font-medium text-text-primary font-sans">
               Money Network Explorer
@@ -320,7 +328,7 @@ export const TransactionNetwork: React.FC = () => {
               <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-2" />
               <input
                 type="text"
-                placeholder="Search Account, Case, Tx..."
+                placeholder="Search Account, Wallet, Case..."
                 value={nodeSearch}
                 onChange={(e) => {
                   setNodeSearch(e.target.value);
@@ -371,6 +379,7 @@ export const TransactionNetwork: React.FC = () => {
               <option value="VICTIM">VICTIM ACCOUNTS</option>
               <option value="MULE">MULE ACCOUNTS</option>
               <option value="ATM">ATM TERMINALS</option>
+              <option value="CRYPTO_WALLET">CRYPTO WALLETS</option>
             </select>
           </div>
 
@@ -444,23 +453,24 @@ export const TransactionNetwork: React.FC = () => {
             {/* Account Details */}
             <div className="space-y-1.5 text-xs">
               <span className="font-semibold text-[9.5px] text-text-muted uppercase font-mono block border-b border-border-subtle pb-1">
-                KYC Identity
+                {inspectedAccount.classification === 'CRYPTO_WALLET' ? 'Web3 Wallet Signature' : 'KYC Identity'}
               </span>
               <div className="flex justify-between">
-                <span className="text-text-muted">Holder Name:</span>
+                <span className="text-text-muted">Entity Label:</span>
                 <span className="font-medium text-text-primary">{inspectedAccount.holder_name}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-text-muted">Bank Institution:</span>
+                <span className="text-text-muted">Network/Bank:</span>
                 <span className="text-text-secondary">{inspectedAccount.bank_name}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-text-muted">IFSC Code:</span>
+                <span className="text-text-muted">IFSC / Chain ID:</span>
                 <span className="font-mono text-text-muted">{inspectedAccount.ifsc_code || 'N/A'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-muted">Classification:</span>
                 <span className={`px-1.5 py-0.2 rounded text-[8.5px] font-mono font-medium ${
+                  inspectedAccount.classification === 'CRYPTO_WALLET' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' :
                   inspectedAccount.is_mule ? 'bg-threat-critical/15 text-threat-critical border border-threat-critical/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                 }`}>
                   {inspectedAccount.classification}

@@ -1,73 +1,58 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import time
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+
 from ..database import get_db
 from .. import models, schemas
-from ..websocket_manager import manager
+from ..websocket import manager
+from ..blockchain import create_block, compute_sha256, compute_ipfs_cid, execute_smart_contract_freeze
 
-router = APIRouter(prefix="/cases", tags=["Case Management"])
+router = APIRouter(prefix="/cases", tags=["Cases"])
 
 @router.get("", response_model=List[schemas.CaseSchema])
 def list_cases(
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
     search: Optional[str] = None,
-    risk_level: Optional[str] = None,
-    fraud_type: Optional[str] = None,
-    status_filter: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
     db: Session = Depends(get_db)
 ):
     query = db.query(models.Case)
-    
+    if status:
+        query = query.filter(models.Case.current_status == status)
+    if priority:
+        query = query.filter(models.Case.priority == priority)
     if search:
-        s = search.strip().upper().replace("_", "-")
+        s = f"%{search}%"
         query = query.filter(
-            models.Case.case_id.contains(s) |
-            models.Case.fraud_type.contains(search) |
-            models.Case.victim_ref.contains(s) |
-            models.Case.assigned_officer.contains(search)
+            (models.Case.case_id.ilike(s)) |
+            (models.Case.fraud_type.ilike(s)) |
+            (models.Case.victim_ref.ilike(s))
         )
-    
-    if risk_level:
-        if risk_level == "CRITICAL":
-            query = query.filter(models.Case.risk_score >= 80)
-        elif risk_level == "HIGH":
-            query = query.filter(models.Case.risk_score >= 60, models.Case.risk_score < 80)
-        elif risk_level == "MEDIUM":
-            query = query.filter(models.Case.risk_score >= 35, models.Case.risk_score < 60)
-        elif risk_level == "LOW":
-            query = query.filter(models.Case.risk_score < 35)
-            
-    if fraud_type and fraud_type != "ALL":
-        query = query.filter(models.Case.fraud_type.contains(fraud_type))
-        
-    if status_filter and status_filter != "ALL":
-        query = query.filter(models.Case.current_status == status_filter)
-        
-    return query.order_by(models.Case.created_at.desc()).all()
+    return query.order_by(models.Case.created_at.desc()).offset(skip).limit(limit).all()
 
 @router.get("/{case_id}", response_model=schemas.CaseDetailSchema)
-def get_case(case_id: str, db: Session = Depends(get_db)):
+def get_case_detail(case_id: str, db: Session = Depends(get_db)):
     clean_id = case_id.strip().upper().replace("_", "-")
     c = db.query(models.Case).filter(models.Case.case_id == clean_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Case not found")
         
-    victim = db.query(models.VictimReference).filter(models.VictimReference.victim_id == c.victim_ref).first()
-    alerts = db.query(models.Alert).filter(models.Alert.case_id == clean_id).order_by(models.Alert.timestamp.desc()).all()
-    notes = db.query(models.InvestigationNote).filter(models.InvestigationNote.case_id == clean_id).order_by(models.InvestigationNote.timestamp.desc()).all()
-    evidence = db.query(models.Evidence).filter(models.Evidence.case_id == clean_id).order_by(models.Evidence.timestamp.desc()).all()
-    predictions = db.query(models.Prediction).filter(models.Prediction.case_id == clean_id).all()
-    interventions = db.query(models.InterventionRequest).filter(models.InterventionRequest.case_id == clean_id).order_by(models.InterventionRequest.created_at.desc()).all()
+    tx_count = db.query(models.Transaction).filter(models.Transaction.linked_case_id == clean_id).count()
+    mule_count = db.query(models.Account).filter(
+        models.Account.linked_case_id == clean_id,
+        models.Account.is_mule == True
+    ).count()
     
     return {
         "case": c,
-        "victim": victim,
-        "alerts": alerts,
-        "notes": notes,
-        "evidence": evidence,
-        "predictions": predictions,
-        "interventions": interventions
+        "victim": c.victim,
+        "transaction_count": tx_count,
+        "mule_count": mule_count
     }
 
 @router.get("/{case_id}/transactions", response_model=List[schemas.TransactionSchema])
@@ -83,25 +68,24 @@ def get_case_network(case_id: str, db: Session = Depends(get_db)):
     if not c:
         raise HTTPException(status_code=404, detail="Case not found")
         
-    txs = db.query(models.Transaction).filter(models.Transaction.linked_case_id == clean_id).order_by(models.Transaction.timestamp.asc()).all()
+    txs = db.query(models.Transaction).filter(models.Transaction.linked_case_id == clean_id).all()
     accounts = db.query(models.Account).filter(models.Account.linked_case_id == clean_id).all()
     acc_map = {a.account_number: a for a in accounts}
     
-    unique_nodes = set()
+    nodes_set = set()
     for t in txs:
-        if t.sender_account: unique_nodes.add(t.sender_account)
-        if t.receiver_account: unique_nodes.add(t.receiver_account)
+        nodes_set.add(t.sender_account)
+        nodes_set.add(t.receiver_account)
         
     nodes = []
-    node_list = list(unique_nodes)
-    
-    for idx, node_id in enumerate(node_list):
+    node_list = list(nodes_set)
+    for node_id in node_list:
         acc = acc_map.get(node_id)
         node_type = "BANK_ACCOUNT"
-        risk_score = 5.0
+        risk_score = 10.0
         holder_name = node_id
         bank_name = "Banking Node"
-        classification = "SAFE"
+        classification = "BENIGN"
         is_mule = False
         
         if acc:
@@ -110,31 +94,39 @@ def get_case_network(case_id: str, db: Session = Depends(get_db)):
             bank_name = acc.bank_name
             classification = acc.classification
             is_mule = acc.is_mule
-            if acc.is_mule: node_type = "MULE"
-            elif acc.classification == "MERCHANT": node_type = "MERCHANT"
-            
+            if acc.is_mule:
+                node_type = "MULE"
+            elif acc.classification == "MERCHANT":
+                node_type = "MERCHANT"
+            elif acc.classification == "CRYPTO_WALLET":
+                node_type = "CRYPTO_WALLET"
+                
         if node_id.startswith("ATM"):
             node_type = "ATM"
             risk_score = 95.0
-            holder_name = "ATM Terminal"
-            bank_name = "Cash-Out Outlet"
-            classification = "OUTLET"
-        elif node_id == c.victim_ref or node_id.startswith("30") or node_id.startswith("VIC"):
+            holder_name = "ATM Cashout Outlet"
+        elif node_id.startswith("0x") or node_id.startswith("TRX") or node_id.startswith("USDT"):
+            node_type = "CRYPTO_WALLET"
+            risk_score = 96.0
+            holder_name = f"Wallet ({node_id[:8]}...)"
+            bank_name = "Blockchain Ledger"
+        elif node_id == c.victim_ref or node_id.startswith("30") or node_id.startswith("50"):
             node_type = "VICTIM"
             risk_score = 5.0
-            holder_name = c.victim_ref
-            classification = "VICTIM"
+            holder_name = c.victim.name if c.victim else "Victim Account"
             
-        # Compute layout positions
+        x, y = 100, 220
         if node_type == "VICTIM":
             x, y = 100, 220
         elif node_type == "ATM":
             x, y = 720, 220
+        elif node_type == "CRYPTO_WALLET":
+            x, y = 720, 100
         elif node_type == "MERCHANT":
             x, y = 740, 100
         elif node_type == "MULE":
             mules = [n for n in node_list if n in acc_map and acc_map[n].is_mule]
-            m_idx = mules.indexOf(node_id) if node_id in mules else 0
+            m_idx = mules.index(node_id) if node_id in mules else 0
             x = 280 + m_idx * 160
             y = 110 + (m_idx % 2) * 220
         else:
@@ -224,14 +216,36 @@ def add_case_note(case_id: str, payload: schemas.InvestigationNoteCreate, db: Se
     )
     db.add(note)
     
-    # Also log in audit
+    # Hash-chain into Blockchain Audit Log
+    last_block = db.query(models.AuditLog).order_by(models.AuditLog.block_index.desc()).first()
+    next_idx = (last_block.block_index + 1) if last_block else 0
+    prev_hash = last_block.block_hash if last_block else ("0" * 64)
+    timestamp_str = datetime.utcnow().isoformat()
+    officer_name = payload.officer or "Officer Rajesh K."
+    
+    blk_data = create_block(
+        index=next_idx,
+        previous_hash=prev_hash,
+        timestamp=timestamp_str,
+        officer=officer_name,
+        action="NOTE_ADDED",
+        details=f"Added note to Case {clean_id}: {payload.content[:50]}...",
+        case_id=clean_id
+    )
+    
     audit = models.AuditLog(
-        log_id=f"AUD-{uuid.uuid4().hex[:8].upper()}",
-        officer=payload.officer or "Officer Rajesh K.",
+        log_id=f"AUD-BLK{next_idx:04d}-{uuid.uuid4().hex[:6].upper()}",
+        block_index=next_idx,
+        previous_hash=blk_data["previous_hash"],
+        block_hash=blk_data["block_hash"],
+        merkle_root=blk_data["merkle_root"],
+        tx_hash=blk_data["tx_hash"],
+        officer=officer_name,
         action="NOTE_ADDED",
         case_id=clean_id,
-        details=f"Added investigation note to Case {clean_id}: {payload.content[:50]}...",
-        timestamp=datetime.utcnow()
+        details=f"Added note to Case {clean_id}: {payload.content[:50]}...",
+        timestamp=datetime.utcnow(),
+        ip_address="10.42.0.8 (LE_VPN)"
     )
     db.add(audit)
     
@@ -259,14 +273,25 @@ def add_case_evidence(case_id: str, payload: schemas.EvidenceCreate, db: Session
     if not c:
         raise HTTPException(status_code=404, detail="Case not found")
         
+    # Cryptographic proof-of-existence anchoring
+    payload_content = f"{clean_id}:{payload.title}:{payload.description}:{time.time()}"
+    sha256_hash = f"SHA256:{compute_sha256(payload_content).upper()}"
+    ipfs_cid = compute_ipfs_cid(payload_content)
+    on_chain_tx = f"0x{compute_sha256(f'evidence_tx_{sha256_hash}')[:40]}"
+    block_num = 1982400 + int(time.time() % 10000)
+
     ev = models.Evidence(
         evidence_id=f"EVD-{uuid.uuid4().hex[:8].upper()}",
         case_id=clean_id,
         title=payload.title,
         description=payload.description,
         file_type=payload.file_type or "PDF",
-        file_size="1.5 MB",
-        hash_checksum=f"SHA256:{uuid.uuid4().hex[:16].upper()}",
+        file_size="1.4 MB",
+        hash_checksum=sha256_hash,
+        ipfs_cid=ipfs_cid,
+        on_chain_tx_hash=on_chain_tx,
+        block_number=block_num,
+        smart_contract_address="0x7F91B994A2D81C10291480D923E2804A9184B022",
         timestamp=datetime.utcnow()
     )
     db.add(ev)
@@ -282,30 +307,43 @@ def delete_case_evidence(case_id: str, evidence_id: str, db: Session = Depends(g
         db.commit()
     return {"status": "success", "deleted_evidence_id": evidence_id}
 
-@router.post("/{case_id}/intervene", response_model=schemas.InterventionRequestSchema)
-async def create_intervention_action(case_id: str, payload: schemas.InterventionRequestCreate, db: Session = Depends(get_db)):
+@router.post("/{case_id}/intervene", response_model=schemas.InterventionSchema)
+async def create_intervention_action(case_id: str, payload: schemas.InterventionCreate, db: Session = Depends(get_db)):
     clean_id = case_id.strip().upper().replace("_", "-")
     c = db.query(models.Case).filter(models.Case.case_id == clean_id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Case not found")
         
     req_id = f"INT-{uuid.uuid4().hex[:8].upper()}"
+    officer_str = "Officer Rajesh K. (Cyber Division)"
+
+    # Execute Multi-Signature Smart Contract
+    smart_receipt = execute_smart_contract_freeze(
+        account_number=payload.account_number,
+        target_entity=payload.target_entity,
+        reason=payload.reason,
+        officer=officer_str
+    )
+
     intervention = models.InterventionRequest(
         request_id=req_id,
         case_id=clean_id,
         account_number=payload.account_number,
         target_entity=payload.target_entity,
         action_type=payload.action_type,
-        status="EXECUTED_SIMULATED",
-        requested_by=payload.requested_by,
+        status="EXECUTED_ON_CHAIN",
+        requested_by=officer_str,
         reason=payload.reason,
         created_at=datetime.utcnow(),
         response_data={
-            "gateway": "NPCI_LE_INTERCEPT_GATEWAY_V2",
-            "lock_reference": f"NPCI-LCK-{uuid.uuid4().hex[:10].upper()}",
+            "gateway": "NPCI_SMART_CONTRACT_FREEZE_V2",
+            "lock_reference": f"SMART-LCK-{uuid.uuid4().hex[:10].upper()}",
             "freeze_timestamp": datetime.utcnow().isoformat(),
-            "status_message": f"Successfully simulated cryptographic freeze request on {payload.account_number}."
-        }
+            "status_message": f"Multi-signature smart contract hold executed on {payload.account_number}."
+        },
+        smart_contract_tx=smart_receipt["smart_contract_tx"],
+        gas_used=smart_receipt["gas_used"],
+        multi_sig_quorum=smart_receipt["multi_sig_quorum"]
     )
     db.add(intervention)
     
@@ -316,18 +354,39 @@ async def create_intervention_action(case_id: str, payload: schemas.Intervention
             acc.is_frozen = True
             acc.classification = "FROZEN_MULE"
             
-    # Mark case as RESOLVED/FROZEN
+    # Mark case as RESOLVED
     c.current_status = "RESOLVED"
-    c.last_activity = "Proactive Freeze Executed"
+    c.last_activity = "Smart Contract Freeze Executed"
     
-    # Create audit log
+    # Hash-chain into Audit Log
+    last_block = db.query(models.AuditLog).order_by(models.AuditLog.block_index.desc()).first()
+    next_idx = (last_block.block_index + 1) if last_block else 0
+    prev_hash = last_block.block_hash if last_block else ("0" * 64)
+    timestamp_str = datetime.utcnow().isoformat()
+    
+    blk_data = create_block(
+        index=next_idx,
+        previous_hash=prev_hash,
+        timestamp=timestamp_str,
+        officer=officer_str,
+        action="INTERVENTION_CREATED",
+        details=f"Smart contract freeze {req_id} ({smart_receipt['smart_contract_tx'][:16]}...) executed on {payload.account_number}.",
+        case_id=clean_id
+    )
+
     audit = models.AuditLog(
-        log_id=f"AUD-{uuid.uuid4().hex[:8].upper()}",
-        officer=payload.requested_by,
+        log_id=f"AUD-BLK{next_idx:04d}-{uuid.uuid4().hex[:6].upper()}",
+        block_index=next_idx,
+        previous_hash=blk_data["previous_hash"],
+        block_hash=blk_data["block_hash"],
+        merkle_root=blk_data["merkle_root"],
+        tx_hash=blk_data["tx_hash"],
+        officer=officer_str,
         action="INTERVENTION_CREATED",
         case_id=clean_id,
-        details=f"Executed proactive freeze lock {req_id} for account {payload.account_number} ({payload.target_entity}).",
-        timestamp=datetime.utcnow()
+        details=f"Smart contract freeze {req_id} ({smart_receipt['smart_contract_tx'][:16]}...) executed on {payload.account_number}.",
+        timestamp=datetime.utcnow(),
+        ip_address="10.42.0.8 (LE_VPN)"
     )
     db.add(audit)
     
@@ -338,10 +397,10 @@ async def create_intervention_action(case_id: str, payload: schemas.Intervention
     await manager.broadcast({
         "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
         "amount": c.amount,
-        "description": f"INTERVENTION EXECUTED: Account {payload.account_number} frozen on {payload.target_entity} for Case {clean_id}.",
+        "description": f"SMART CONTRACT FREEZE: Account {payload.account_number} locked on {payload.target_entity} for Case {clean_id} (Tx: {smart_receipt['smart_contract_tx'][:16]}...).",
         "risk_level": "CRITICAL",
         "event_type": "ALERT",
-        "meta": {"case_id": clean_id, "action": payload.action_type}
+        "meta": {"case_id": clean_id, "action": payload.action_type, "tx_hash": smart_receipt["smart_contract_tx"]}
     })
     
     return intervention
