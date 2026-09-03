@@ -459,6 +459,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAccounts(foundMock.accounts);
     setPredictions(foundMock.predictions);
     setTimeline(foundMock.timeline);
+    if (foundMock.notes) setNotes(foundMock.notes);
+    if (foundMock.evidence) setEvidence(foundMock.evidence);
     setLoading(false);
   }, []);
 
