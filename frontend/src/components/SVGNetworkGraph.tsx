@@ -44,7 +44,7 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
   focusTrail = false
 }) => {
   const [zoom, setZoom] = useState<number>(1);
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 20, y: 10 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -68,11 +68,11 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
 
   const resetView = () => {
     setZoom(1);
-    setPan({ x: 0, y: 0 });
+    setPan({ x: 20, y: 10 });
   };
 
   return (
-    <div className="relative w-full h-full min-h-[360px] bg-canvas-950 rounded border border-border-subtle overflow-hidden select-none">
+    <div className="relative w-full h-full min-h-[380px] bg-canvas-950 rounded border border-border-subtle overflow-hidden select-none">
       
       {/* Zoom Controls Overlay */}
       <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 p-1 bg-canvas-900 border border-border-subtle rounded shadow-panel">
@@ -121,6 +121,7 @@ export const SVGNetworkGraph: React.FC<SVGNetworkGraphProps> = ({
 
       {/* SVG Canvas */}
       <svg
+        viewBox="0 0 960 420"
         className="w-full h-full cursor-grab active:cursor-grabbing"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}

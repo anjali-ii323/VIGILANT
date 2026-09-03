@@ -77,7 +77,7 @@ export const TransactionNetwork: React.FC = () => {
     }
   }, [selectedCaseId]);
 
-  // Construct Graph Nodes & Edges dynamically from dataset
+  // Construct Graph Nodes & Edges dynamically with Layered DAG Algorithm
   useEffect(() => {
     if (!caseTransactions || caseTransactions.length === 0) {
       setNodes([]);
@@ -92,6 +92,60 @@ export const TransactionNetwork: React.FC = () => {
     });
 
     const list = Array.from(uniqueIds);
+
+    // Topological Layer Assignment (Guarantees zero overlapping and clean left-to-right flow)
+    const nodeLayer: { [id: string]: number } = {};
+    list.forEach(id => {
+      nodeLayer[id] = 0;
+    });
+
+    // Relax layers along directed edges
+    let changed = true;
+    let iter = 0;
+    while (changed && iter < 10) {
+      changed = false;
+      iter++;
+      caseTransactions.forEach(t => {
+        const u = t.sender_account;
+        const v = t.receiver_account;
+        if (nodeLayer[u] !== undefined && nodeLayer[v] !== undefined) {
+          if (nodeLayer[v] <= nodeLayer[u]) {
+            nodeLayer[v] = nodeLayer[u] + 1;
+            changed = true;
+          }
+        }
+      });
+    }
+
+    // Group nodes by layer
+    const layers: { [layer: number]: string[] } = {};
+    list.forEach(id => {
+      const l = nodeLayer[id] || 0;
+      if (!layers[l]) layers[l] = [];
+      layers[l].push(id);
+    });
+
+    // Compute coordinates
+    const coords: { [id: string]: { x: number; y: number } } = {};
+    const layerKeys = Object.keys(layers).map(Number).sort((a, b) => a - b);
+    
+    layerKeys.forEach(l => {
+      const nodesInLayer = layers[l];
+      const count = nodesInLayer.length;
+      const x = 90 + l * 240;
+      const centerY = 200;
+      const verticalGap = 160;
+      const totalHeight = (count - 1) * verticalGap;
+      const startY = centerY - totalHeight / 2;
+
+      nodesInLayer.forEach((nodeId, idx) => {
+        coords[nodeId] = {
+          x,
+          y: startY + idx * verticalGap
+        };
+      });
+    });
+
     let nodesList = list.map((nodeId) => {
       const acc = caseAccounts.find(a => a.account_number === nodeId);
       let type: 'VICTIM' | 'MULE' | 'ATM' | 'BANK_ACCOUNT' | 'MERCHANT' | 'CRYPTO_WALLET' = 'BANK_ACCOUNT';
@@ -123,22 +177,7 @@ export const TransactionNetwork: React.FC = () => {
         holderName = "Victim Account";
       }
 
-      let x = 80, y = 180;
-      if (type === 'VICTIM') {
-        x = 80; y = 180;
-      } else if (type === 'ATM') {
-        x = 580; y = 180;
-      } else if (type === 'CRYPTO_WALLET') {
-        x = 580; y = 80;
-      } else if (type === 'MERCHANT') {
-        x = 580; y = 120;
-      } else if (type === 'MULE') {
-        const muleIdx = list.indexOf(nodeId);
-        x = 220 + (muleIdx > 0 ? (muleIdx - 1) * 150 : 0);
-        y = 90 + (muleIdx % 2) * 180;
-      } else {
-        x = 340; y = 70;
-      }
+      const pos = coords[nodeId] || { x: 100, y: 180 };
 
       return {
         id: nodeId,
@@ -147,8 +186,8 @@ export const TransactionNetwork: React.FC = () => {
         riskScore,
         holder_name: holderName,
         bank_name: bankName,
-        x,
-        y
+        x: pos.x,
+        y: pos.y
       };
     });
 
