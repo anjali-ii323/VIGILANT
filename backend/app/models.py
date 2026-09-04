@@ -238,9 +238,14 @@ class AuditLog(Base):
     log_id = Column(String, primary_key=True, index=True)
     block_index = Column(Integer, default=0)
     previous_hash = Column(String(64), default="0"*64)
-    block_hash = Column(String(64), nullable=True)
+    block_hash = Column(String(66), nullable=True)
+    canonical_hash = Column(String(66), nullable=True)
     merkle_root = Column(String(64), nullable=True)
     tx_hash = Column(String(66), nullable=True)
+    blockchain_tx_hash = Column(String(66), nullable=True)
+    blockchain_block_number = Column(Integer, nullable=True)
+    blockchain_status = Column(String, default="CONFIRMED_ON_CHAIN") # CONFIRMED_ON_CHAIN, PENDING, FAILED
+    contract_address = Column(String(42), nullable=True)
     officer = Column(String, default="Officer Rajesh K.")
     action = Column(String) # CASE_OPENED, NOTE_ADDED, INTERVENTION_CREATED, PREDICTION_REFRESHED, WATCHLIST_UPDATED, REPORT_GENERATED
     case_id = Column(String, nullable=True)

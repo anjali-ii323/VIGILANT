@@ -97,8 +97,13 @@ export interface AuditLogItem {
   block_index?: number;
   previous_hash?: string;
   block_hash?: string;
+  canonical_hash?: string;
   merkle_root?: string;
   tx_hash?: string;
+  blockchain_tx_hash?: string;
+  blockchain_block_number?: number;
+  blockchain_status?: string;
+  contract_address?: string;
   officer: string;
   action: string;
   case_id?: string;
@@ -129,6 +134,7 @@ interface AppContextType {
   toasts: Toast[];
   addToast: (title: string, message: string, type?: 'info' | 'warning' | 'error' | 'success') => void;
   fetchCaseData: (caseId: string) => Promise<void>;
+  fetchAuditLogs: () => Promise<void>;
   addNote: (content: string, category?: string) => Promise<void>;
   deleteNote: (noteId: string) => Promise<void>;
   addEvidence: (title: string, description: string, fileType?: string) => Promise<void>;
@@ -710,6 +716,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toasts,
         addToast,
         fetchCaseData,
+        fetchAuditLogs,
         addNote,
         deleteNote,
         addEvidence,

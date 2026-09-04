@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from .database import Base, engine, SessionLocal
 from . import models
 from .ml.risk_engine import recalculate_account_risk
-from .blockchain import create_block, compute_sha256, compute_ipfs_cid
+from .blockchain import record_audit_event, compute_canonical_hash
 
 INDIAN_FIRST_NAMES = ["Amit", "Priya", "Rajesh", "Sunita", "Vikram", "Neha", "Sanjay", "Deepa", "Rahul", "Anjali", 
                       "Arjun", "Kiran", "Vijay", "Meera", "Rohan", "Shalini", "Manish", "Divya", "Suresh", "Pooja",
@@ -342,12 +342,12 @@ def seed_db():
             )
             db.add(db_note)
 
-        # Create Blockchain Proof-of-Existence Evidence Records
+        # Create Evidence Records
         for idx, ev_item in enumerate(case_data.get("evidence", [])):
             ev_content = f"{case_data['case_id']}:{ev_item['title']}:{ev_item['desc']}"
-            sha_hash = f"SHA256:{compute_sha256(ev_content).upper()}"
-            ipfs_cid = compute_ipfs_cid(ev_content)
-            on_chain_tx = f"0x{compute_sha256(f'tx_{sha_hash}')[:40]}"
+            import hashlib
+            sha_hash = f"SHA256:{hashlib.sha256(ev_content.encode('utf-8')).hexdigest().upper()}"
+            ipfs_cid = f"bafybeic{sha_hash[7:39].lower()}vigilant"
 
             db_evidence = models.Evidence(
                 evidence_id=f"EVD-{case_data['case_id'].split('-')[-1]}-{idx+1}",
@@ -358,9 +358,6 @@ def seed_db():
                 file_size=ev_item.get("size", "1.2 MB"),
                 hash_checksum=sha_hash,
                 ipfs_cid=ipfs_cid,
-                on_chain_tx_hash=on_chain_tx,
-                block_number=1982400 + idx * 4,
-                smart_contract_address="0x7F91B994A2D81C10291480D923E2804A9184B022",
                 timestamp=datetime.utcnow() - timedelta(minutes=80 - idx * 20)
             )
             db.add(db_evidence)
@@ -384,50 +381,29 @@ def seed_db():
         )
         db.add(wl_item)
 
-    # 6. Seed Blockchain Hash-Chained Audit Ledger
+    # 6. Seed Blockchain Audit Ledger with Canonical Hashes & Smart Contract Receipts
     audit_events = [
-        {"action": "GENESIS_BLOCK_INITIALIZED", "case": None, "details": "National Blockchain Forensic Inter-Agency Ledger Genesis block created."},
+        {"action": "GENESIS_BLOCK_INITIALIZED", "case": None, "details": "National Blockchain Forensic Inter-Agency Ledger Genesis block created on Hyperledger Besu."},
         {"action": "SESSION_INITIALIZED", "case": None, "details": "Officer Rajesh K. logged in via Level 3 Cyber Intelligence Gateway."},
         {"action": "CASE_OPENED", "case": "CF-2026-00421", "details": "Opened Case CF-2026-00421 (UPI Social Engineering) for active investigation."},
         {"action": "PREDICTION_REFRESHED", "case": "CF-2026-00421", "details": "Recalculated Markov next-hop transition probabilities for MULE-B821."},
         {"action": "WATCHLIST_ADDED", "case": "CF-2026-00421", "details": "Added MULE-C912 to national proactive surveillance watchlist."},
-        {"action": "EVIDENCE_ANCHORED_ON_CHAIN", "case": "CF-2026-00421", "details": "Anchored FIR Intake Statement (IPFS: bafybeic8f43a9182bc4e7d99a01) to Polygon testnet."},
+        {"action": "EVIDENCE_ANCHORED", "case": "CF-2026-00421", "details": "Anchored FIR Intake Statement (SHA-256 Checksum) to on-chain ledger."},
         {"action": "ATM_CLUSTER_GEOCODED", "case": "CF-2026-00421", "details": "Mapped ATM Cluster 03 (Dadar West) cash-out risk window: 20-40 min."}
     ]
 
-    prev_hash = "0" * 64
-    for idx, a in enumerate(audit_events):
-        t_str = (datetime.utcnow() - timedelta(minutes=90 - idx * 15)).isoformat()
-        blk = create_block(
-            index=idx,
-            previous_hash=prev_hash,
-            timestamp=t_str,
-            officer="Officer Rajesh K.",
+    for a in audit_events:
+        record_audit_event(
+            db=db,
             action=a["action"],
             details=a["details"],
-            case_id=a["case"]
-        )
-        
-        audit_log = models.AuditLog(
-            log_id=f"AUD-BLK{idx:04d}-{uuid.uuid4().hex[:6].upper()}",
-            block_index=idx,
-            previous_hash=blk["previous_hash"],
-            block_hash=blk["block_hash"],
-            merkle_root=blk["merkle_root"],
-            tx_hash=blk["tx_hash"],
-            officer="Officer Rajesh K.",
-            action=a["action"],
             case_id=a["case"],
-            details=a["details"],
-            timestamp=datetime.utcnow() - timedelta(minutes=90 - idx * 15),
-            ip_address="10.42.0.8 (LE_VPN)"
+            officer="Officer Rajesh K."
         )
-        db.add(audit_log)
-        prev_hash = blk["block_hash"]
 
     db.commit()
     db.close()
-    print("Database seeding completed with 20 Cases and Cryptographic Blockchain Ledger!")
+    print("Database seeding completed with 20 Cases and Hyperledger Besu Blockchain Ledger!")
 
 if __name__ == "__main__":
     seed_db()

@@ -8,7 +8,7 @@ from datetime import datetime
 from ..database import get_db
 from .. import models, schemas
 from ..websocket import manager
-from ..blockchain import create_block, compute_sha256, compute_ipfs_cid, execute_smart_contract_freeze
+from ..blockchain import record_audit_event, compute_canonical_hash
 
 router = APIRouter(prefix="/cases", tags=["Cases"])
 
@@ -215,42 +215,18 @@ def add_case_note(case_id: str, payload: schemas.InvestigationNoteCreate, db: Se
         timestamp=datetime.utcnow()
     )
     db.add(note)
-    
-    # Hash-chain into Blockchain Audit Log
-    last_block = db.query(models.AuditLog).order_by(models.AuditLog.block_index.desc()).first()
-    next_idx = (last_block.block_index + 1) if last_block else 0
-    prev_hash = last_block.block_hash if last_block else ("0" * 64)
-    timestamp_str = datetime.utcnow().isoformat()
-    officer_name = payload.officer or "Officer Rajesh K."
-    
-    blk_data = create_block(
-        index=next_idx,
-        previous_hash=prev_hash,
-        timestamp=timestamp_str,
-        officer=officer_name,
-        action="NOTE_ADDED",
-        details=f"Added note to Case {clean_id}: {payload.content[:50]}...",
-        case_id=clean_id
-    )
-    
-    audit = models.AuditLog(
-        log_id=f"AUD-BLK{next_idx:04d}-{uuid.uuid4().hex[:6].upper()}",
-        block_index=next_idx,
-        previous_hash=blk_data["previous_hash"],
-        block_hash=blk_data["block_hash"],
-        merkle_root=blk_data["merkle_root"],
-        tx_hash=blk_data["tx_hash"],
-        officer=officer_name,
-        action="NOTE_ADDED",
-        case_id=clean_id,
-        details=f"Added note to Case {clean_id}: {payload.content[:50]}...",
-        timestamp=datetime.utcnow(),
-        ip_address="10.42.0.8 (LE_VPN)"
-    )
-    db.add(audit)
-    
     db.commit()
     db.refresh(note)
+    
+    # Record on Hyperledger Besu Audit Ledger
+    record_audit_event(
+        db=db,
+        action="NOTE_ADDED",
+        details=f"Added note to Case {clean_id}: {payload.content[:80]}",
+        case_id=clean_id,
+        officer=payload.officer
+    )
+    
     return note
 
 @router.delete("/{case_id}/notes/{note_id}")
@@ -273,12 +249,11 @@ def add_case_evidence(case_id: str, payload: schemas.EvidenceCreate, db: Session
     if not c:
         raise HTTPException(status_code=404, detail="Case not found")
         
-    # Cryptographic proof-of-existence anchoring
+    # Cryptographic proof-of-existence SHA-256 calculation
     payload_content = f"{clean_id}:{payload.title}:{payload.description}:{time.time()}"
-    sha256_hash = f"SHA256:{compute_sha256(payload_content).upper()}"
-    ipfs_cid = compute_ipfs_cid(payload_content)
-    on_chain_tx = f"0x{compute_sha256(f'evidence_tx_{sha256_hash}')[:40]}"
-    block_num = 1982400 + int(time.time() % 10000)
+    import hashlib
+    sha256_hash = f"SHA256:{hashlib.sha256(payload_content.encode('utf-8')).hexdigest().upper()}"
+    ipfs_cid = f"bafybeic{sha256_hash[7:39].lower()}vigilant"
 
     ev = models.Evidence(
         evidence_id=f"EVD-{uuid.uuid4().hex[:8].upper()}",
@@ -289,14 +264,20 @@ def add_case_evidence(case_id: str, payload: schemas.EvidenceCreate, db: Session
         file_size="1.4 MB",
         hash_checksum=sha256_hash,
         ipfs_cid=ipfs_cid,
-        on_chain_tx_hash=on_chain_tx,
-        block_number=block_num,
-        smart_contract_address="0x7F91B994A2D81C10291480D923E2804A9184B022",
         timestamp=datetime.utcnow()
     )
     db.add(ev)
     db.commit()
     db.refresh(ev)
+    
+    # Record evidence anchor on Hyperledger Besu Audit Ledger
+    record_audit_event(
+        db=db,
+        action="EVIDENCE_ANCHORED",
+        details=f"Evidence '{payload.title}' attached to Case {clean_id} with checksum {sha256_hash[:20]}...",
+        case_id=clean_id
+    )
+    
     return ev
 
 @router.delete("/{case_id}/evidence/{evidence_id}")
@@ -317,33 +298,22 @@ async def create_intervention_action(case_id: str, payload: schemas.Intervention
     req_id = f"INT-{uuid.uuid4().hex[:8].upper()}"
     officer_str = "Officer Rajesh K. (Cyber Division)"
 
-    # Execute Multi-Signature Smart Contract
-    smart_receipt = execute_smart_contract_freeze(
-        account_number=payload.account_number,
-        target_entity=payload.target_entity,
-        reason=payload.reason,
-        officer=officer_str
-    )
-
     intervention = models.InterventionRequest(
         request_id=req_id,
         case_id=clean_id,
         account_number=payload.account_number,
         target_entity=payload.target_entity,
         action_type=payload.action_type,
-        status="EXECUTED_ON_CHAIN",
+        status="EXECUTED",
         requested_by=officer_str,
         reason=payload.reason,
         created_at=datetime.utcnow(),
         response_data={
-            "gateway": "NPCI_SMART_CONTRACT_FREEZE_V2",
-            "lock_reference": f"SMART-LCK-{uuid.uuid4().hex[:10].upper()}",
+            "gateway": "NPCI_CENTRAL_HOLD_GATEWAY",
+            "lock_reference": f"LCK-{uuid.uuid4().hex[:10].upper()}",
             "freeze_timestamp": datetime.utcnow().isoformat(),
-            "status_message": f"Multi-signature smart contract hold executed on {payload.account_number}."
-        },
-        smart_contract_tx=smart_receipt["smart_contract_tx"],
-        gas_used=smart_receipt["gas_used"],
-        multi_sig_quorum=smart_receipt["multi_sig_quorum"]
+            "status_message": f"Hold directive registered on {payload.account_number}."
+        }
     )
     db.add(intervention)
     
@@ -356,51 +326,28 @@ async def create_intervention_action(case_id: str, payload: schemas.Intervention
             
     # Mark case as RESOLVED
     c.current_status = "RESOLVED"
-    c.last_activity = "Smart Contract Freeze Executed"
-    
-    # Hash-chain into Audit Log
-    last_block = db.query(models.AuditLog).order_by(models.AuditLog.block_index.desc()).first()
-    next_idx = (last_block.block_index + 1) if last_block else 0
-    prev_hash = last_block.block_hash if last_block else ("0" * 64)
-    timestamp_str = datetime.utcnow().isoformat()
-    
-    blk_data = create_block(
-        index=next_idx,
-        previous_hash=prev_hash,
-        timestamp=timestamp_str,
-        officer=officer_str,
-        action="INTERVENTION_CREATED",
-        details=f"Smart contract freeze {req_id} ({smart_receipt['smart_contract_tx'][:16]}...) executed on {payload.account_number}.",
-        case_id=clean_id
-    )
-
-    audit = models.AuditLog(
-        log_id=f"AUD-BLK{next_idx:04d}-{uuid.uuid4().hex[:6].upper()}",
-        block_index=next_idx,
-        previous_hash=blk_data["previous_hash"],
-        block_hash=blk_data["block_hash"],
-        merkle_root=blk_data["merkle_root"],
-        tx_hash=blk_data["tx_hash"],
-        officer=officer_str,
-        action="INTERVENTION_CREATED",
-        case_id=clean_id,
-        details=f"Smart contract freeze {req_id} ({smart_receipt['smart_contract_tx'][:16]}...) executed on {payload.account_number}.",
-        timestamp=datetime.utcnow(),
-        ip_address="10.42.0.8 (LE_VPN)"
-    )
-    db.add(audit)
+    c.last_activity = "Intervention Directive Executed"
     
     db.commit()
     db.refresh(intervention)
     
+    # Record intervention on Hyperledger Besu Audit Ledger
+    record_audit_event(
+        db=db,
+        action="INTERVENTION_CREATED",
+        details=f"Intervention {payload.action_type} executed on account {payload.account_number} ({payload.target_entity}). Reason: {payload.reason}",
+        case_id=clean_id,
+        officer=officer_str
+    )
+
     # Broadcast live alert to WebSockets
     await manager.broadcast({
         "timestamp": datetime.utcnow().strftime("%H:%M:%S"),
         "amount": c.amount,
-        "description": f"SMART CONTRACT FREEZE: Account {payload.account_number} locked on {payload.target_entity} for Case {clean_id} (Tx: {smart_receipt['smart_contract_tx'][:16]}...).",
+        "description": f"INTERVENTION DIRECTIVE: Account {payload.account_number} locked on {payload.target_entity} for Case {clean_id}.",
         "risk_level": "CRITICAL",
         "event_type": "ALERT",
-        "meta": {"case_id": clean_id, "action": payload.action_type, "tx_hash": smart_receipt["smart_contract_tx"]}
+        "meta": {"case_id": clean_id, "action": payload.action_type}
     })
     
     return intervention

@@ -220,8 +220,13 @@ class AuditLogSchema(BaseModel):
     block_index: Optional[int] = 0
     previous_hash: Optional[str] = None
     block_hash: Optional[str] = None
+    canonical_hash: Optional[str] = None
     merkle_root: Optional[str] = None
     tx_hash: Optional[str] = None
+    blockchain_tx_hash: Optional[str] = None
+    blockchain_block_number: Optional[int] = None
+    blockchain_status: Optional[str] = "CONFIRMED_ON_CHAIN"
+    contract_address: Optional[str] = None
     officer: str
     action: str
     case_id: Optional[str] = None
@@ -232,13 +237,41 @@ class AuditLogSchema(BaseModel):
     class Config:
         from_attributes = True
 
-class BlockchainVerifySchema(BaseModel):
-    is_valid: bool
-    block_count: int
-    genesis_hash: Optional[str] = None
-    latest_block_hash: Optional[str] = None
-    latest_block_index: Optional[int] = None
+class BlockchainVerifyItemSchema(BaseModel):
+    log_id: str
     status: str
+    is_valid: bool
+    reason: str
+    database_hash: Optional[str] = None
+    blockchain_hash: Optional[str] = None
+    tx_hash: Optional[str] = None
+    block_number: Optional[int] = None
+    timestamp: Optional[str] = None
+
+class BlockchainVerifySchema(BaseModel):
+    status: str
+    is_valid: bool
+    total_records: int
+    verified_count: int
+    tampered_count: int
+    missing_count: Optional[int] = 0
+    blockchain_network: Optional[str] = "Hyperledger Besu"
+    contract_address: Optional[str] = None
+    latest_block_number: Optional[int] = None
+    records: Optional[List[BlockchainVerifyItemSchema]] = []
+
+class BlockchainStatusSchema(BaseModel):
+    connected: bool
+    network: str
+    chain_id: Optional[int] = None
+    latest_block_number: int
+    contract_address: Optional[str] = None
+    writer_account: Optional[str] = None
+    audit_count_on_chain: Optional[int] = 0
+
+class TamperSimulationRequest(BaseModel):
+    log_id: str
+    tampered_details: str
 
 class CaseDetailSchema(BaseModel):
     case: CaseSchema
